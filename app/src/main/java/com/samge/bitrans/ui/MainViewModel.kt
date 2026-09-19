@@ -177,6 +177,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Self-test the configured engine with a fixed probe sentence. */
+    fun runEngineSelfTest() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _status.value = "引擎自测中…"
+            val engine = TranslateConfig.currentEngine(ctx())
+            val target = TranslateConfig.targetLang(ctx())
+            val probe = "Hello world, this is a translation test."
+            val r = engine.translate(probe, "en", target)
+            r.onSuccess {
+                _status.value = "自测通过(${engine.name}): $it"
+            }.onFailure {
+                _status.value = "自测失败(${engine.name}): ${it.message?.take(80)}"
+            }
+        }
+    }
+
+    /** E2E probe without mic: inject sentences as if ASR produced them (5 quick taps on start). */
+    fun injectTestUtterances() {
+        val probes = listOf(
+            Caption(source = "今天天气不错，我们去公园散步吧。", langTag = "zh"),
+            Caption(source = "The tribal chieftain called for the boy.", langTag = "en"),
+        )
+        _status.value = "已注入测试句(不经过ASR)"
+        probes.forEach { cap ->
+            _captions.value = listOf(cap) + _captions.value.take(199)
+            translateCaption(cap)
+        }
+    }
+
     fun clearCaptions() {
         _captions.value = emptyList()
     }

@@ -97,6 +97,7 @@ fun BiTransApp(vm: MainViewModel) {
                             listening = listening,
                             onToggle = { requestAndToggle() },
                             onClear = { vm.clearCaptions() },
+                            onProbe = { vm.injectTestUtterances() },
                         )
                     }
                 }
@@ -224,7 +225,12 @@ private fun StatusRow(status: String, level: Float, listening: Boolean) {
 }
 
 @Composable
-private fun Controls(listening: Boolean, onToggle: () -> Unit, onClear: () -> Unit) {
+private fun Controls(
+    listening: Boolean,
+    onToggle: () -> Unit,
+    onClear: () -> Unit,
+    onProbe: () -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -236,8 +242,23 @@ private fun Controls(listening: Boolean, onToggle: () -> Unit, onClear: () -> Un
             Icon(Icons.Default.Delete, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("清空")
         }
         Spacer(Modifier.width(24.dp))
+        var tapCount by remember { mutableStateOf(0) }
+        var lastTap by remember { mutableStateOf(0L) }
         Button(
-            onClick = onToggle,
+            onClick = {
+                val now = System.currentTimeMillis()
+                if (!listening) {
+                    // 5 quick taps = inject probe utterances (E2E self-test without mic)
+                    if (now - lastTap < 600) tapCount++ else tapCount = 1
+                    lastTap = now
+                    if (tapCount >= 5) {
+                        tapCount = 0
+                        onProbe()
+                        return@Button
+                    }
+                }
+                onToggle()
+            },
             colors = if (listening) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             else ButtonDefaults.buttonColors(),
             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 14.dp),
@@ -387,14 +408,26 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
         Text("${overlayAlpha.toInt()}%", fontSize = 11.sp)
 
         Spacer(Modifier.height(20.dp))
-        Button(onClick = {
-            vm.updateSettings(
-                AppSettings(
-                    engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, tts,
-                    overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
+        Row {
+            Button(onClick = {
+                vm.updateSettings(
+                    AppSettings(
+                        engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, tts,
+                        overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
+                    )
                 )
-            )
-        }) { Text("保存") }
+            }) { Text("保存") }
+            Spacer(Modifier.width(12.dp))
+            OutlinedButton(onClick = {
+                vm.updateSettings(
+                    AppSettings(
+                        engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, tts,
+                        overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
+                    )
+                )
+                vm.runEngineSelfTest()
+            }) { Text("保存并测试") }
+        }
         Spacer(Modifier.height(24.dp))
         Text(
             "全部组件开源免费: sherpa-onnx (Apache-2.0) + SenseVoice (FunASR/AGPL模型许可, 仅推理不受限) + ML Kit 翻译 (免费) / LibreTranslate (AGPL) / 自托管 LLM",
