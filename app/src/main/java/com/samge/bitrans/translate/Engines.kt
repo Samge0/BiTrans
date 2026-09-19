@@ -39,10 +39,11 @@ class MlKitEngine(private val context: Context) : TranslateEngine {
 
     override suspend fun translate(text: String, from: String, to: String): Result<String> {
         return try {
-            val src = TranslateLanguage.fromLanguageTag(Locale.forLanguageTag(from).toLanguageTag())
-                ?: return Result.failure(IllegalArgumentException("mlkit unsupported source $from"))
-            val tgt = TranslateLanguage.fromLanguageTag(Locale.forLanguageTag(to).toLanguageTag())
-                ?: return Result.failure(IllegalArgumentException("mlkit unsupported target $to"))
+            // SenseVoice "yue" has no ML Kit tag; Chinese covers it
+            val srcCode = if (from == "yue") "zh" else from
+            val tgtCode = if (to == "yue") "zh" else to
+            val src = TargetLang.fromCode(srcCode).mlkit
+            val tgt = TargetLang.fromCode(tgtCode).mlkit
             val opts = TranslatorOptions.Builder().setSourceLanguage(src).setTargetLanguage(tgt).build()
             val tr = Translation.getClient(opts)
             try {
@@ -74,10 +75,13 @@ class LibreTranslateEngine(
                 conn.connectTimeout = 8000
                 conn.readTimeout = 15000
                 conn.setRequestProperty("Content-Type", "application/json")
+                // LibreTranslate has no "yue"; zh covers Cantonese adequately
+                val srcCode = if (from == "yue") "zh" else from
+                val tgtCode = if (to == "yue") "zh" else to
                 val body = buildString {
                     append("{\"q\":")
                     append(jsonEscape(text))
-                    append(",\"source\":\"").append(from).append("\",\"target\":\"").append(to).append("\",\"format\":\"text\"")
+                    append(",\"source\":\"").append(srcCode).append("\",\"target\":\"").append(tgtCode).append("\",\"format\":\"text\"")
                     if (apiKey.isNotBlank()) append(",\"api_key\":\"").append(jsonEscape(apiKey)).append("\"")
                     append("}")
                 }
@@ -115,10 +119,11 @@ class LlmEngine(
                 conn.readTimeout = 30000
                 conn.setRequestProperty("Content-Type", "application/json")
                 if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
-                val prompt = "You are a professional interpreter. Translate the following " +
-                    "$from speech transcript into $to. Output ONLY the translation, no explanations.\n\n$text"
-                val body = "{\"model\":\"" + jsonEscape(model) + "\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a translator.\"}," +
-                    "{\"role\":\"user\",\"content\":" + jsonEscape(prompt) + "}],\"temperature\":0.2,\"max_tokens\":512}"
+                val prompt = "Translate this ${nameOf(from)} sentence into ${nameOf(to)}. " +
+                    "Reply with the translation ONLY — no pinyin, no notes, no quotes.\n\n$text"
+                val body = "{\"model\":\"" + jsonEscape(model) + "\",\"messages\":[" +
+                    "{\"role\":\"system\",\"content\":\"You are a professional subtitle translator. Output only the translation.\"}," +
+                    "{\"role\":\"user\",\"content\":" + jsonEscape(prompt) + "}],\"temperature\":0.1,\"max_tokens\":256}"
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText()
@@ -135,6 +140,11 @@ class LlmEngine(
     }
 
     private fun trimSlash(s: String) = s.trimEnd('/')
+
+    private fun nameOf(code: String) = when (code) {
+        "zh" -> "Chinese"; "en" -> "English"; "ja" -> "Japanese"
+        "ko" -> "Korean"; "yue" -> "Cantonese"; else -> code
+    }
 }
 
 /** Naive JSON field extraction without deps (LLM/LT responses are flat enough for this) */

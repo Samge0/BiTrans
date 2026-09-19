@@ -7,11 +7,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.BiTrans"
+        android:usesCleartextTraffic="true"
         android:allowBackup="true">
 
         <activity
@@ -30,5 +32,10 @@
             android:name=".listen.ListenService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <service
+            android:name=".overlay.OverlayService"
+            android:exported="false"
+            android:stopWithTask="false" />
     </application>
 </manifest>

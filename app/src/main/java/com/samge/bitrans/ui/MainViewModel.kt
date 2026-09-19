@@ -27,10 +27,16 @@ sealed interface UiState {
 data class AppSettings(
     val engineKind: String,
     val target: String,
+    val source: String,
     val ltEndpoint: String,
     val llmBase: String,
     val llmModel: String,
+    val llmKey: String,
     val tts: Boolean,
+    val overlayOn: Boolean,
+    val overlayW: Int,
+    val overlayFont: Int,
+    val overlayAlpha: Int,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -137,6 +143,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (text.isBlank()) return@launch
             val cap = Caption(source = text, langTag = lang)
             _captions.value = listOf(cap) + _captions.value.take(199)
+            if (TranslateConfig.overlayEnabled(ctx())) {
+                com.samge.bitrans.overlay.OverlayService.push(text, "")
+            }
             translateCaption(cap)
         }
     }
@@ -144,15 +153,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun translateCaption(cap: Caption) {
         viewModelScope.launch(Dispatchers.IO) {
             val targetCode = TranslateConfig.targetLang(ctx())
+            val sourceCode = TranslateConfig.sourceLang(ctx())
             val engine = TranslateConfig.currentEngine(ctx())
-            val skip = cap.langTag == targetCode ||
-                (cap.langTag == "yue" && targetCode == "zh") ||
-                (cap.langTag == "zh" && targetCode == "yue")
-            val result = if (skip) Result.success(cap.source) else engine.translate(cap.source, cap.langTag, targetCode)
+            val effectiveSource = if (sourceCode == "auto") cap.langTag else sourceCode
+            val skip = effectiveSource == targetCode ||
+                (effectiveSource == "yue" && targetCode == "zh") ||
+                (effectiveSource == "zh" && targetCode == "yue")
+            val result = if (skip) Result.success(cap.source) else engine.translate(cap.source, effectiveSource, targetCode)
+            val translated = result.getOrDefault("")
             val updated = _captions.value.map {
-                if (it.id == cap.id) it.copy(target = result.getOrDefault(""), pending = false) else it
+                if (it.id == cap.id) it.copy(target = translated, pending = false) else it
             }
             _captions.value = updated
+            // push to global overlay if enabled
+            if (TranslateConfig.overlayEnabled(ctx())) {
+                com.samge.bitrans.overlay.OverlayService.push(cap.source, translated)
+            }
             result.onSuccess { t ->
                 if (t.isNotBlank() && TranslateConfig.ttsEnabled(ctx())) speak(t, targetCode)
             }.onFailure { e ->
@@ -168,20 +184,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun updateSettings(s: AppSettings) {
         TranslateConfig.setEngineKind(ctx(), s.engineKind)
         TranslateConfig.setTargetLang(ctx(), s.target)
+        TranslateConfig.setSourceLang(ctx(), s.source)
         TranslateConfig.setLtEndpoint(ctx(), s.ltEndpoint)
         TranslateConfig.setLlmBaseUrl(ctx(), s.llmBase)
         TranslateConfig.setLlmModel(ctx(), s.llmModel)
+        TranslateConfig.setLlmApiKey(ctx(), s.llmKey)
         TranslateConfig.setTtsEnabled(ctx(), s.tts)
+        TranslateConfig.setOverlayEnabled(ctx(), s.overlayOn)
+        TranslateConfig.setOverlayWidth(ctx(), s.overlayW)
+        TranslateConfig.setOverlayFont(ctx(), s.overlayFont)
+        TranslateConfig.setOverlayAlpha(ctx(), s.overlayAlpha)
         _settings.value = loadSettings()
+        // sync overlay lifecycle with the setting
+        if (s.overlayOn) {
+            com.samge.bitrans.overlay.OverlayService.start(ctx())
+        } else {
+            com.samge.bitrans.overlay.OverlayService.stop(ctx())
+        }
     }
 
     private fun loadSettings(): AppSettings = AppSettings(
         engineKind = TranslateConfig.engineKind(ctx()),
         target = TranslateConfig.targetLang(ctx()),
+        source = TranslateConfig.sourceLang(ctx()),
         ltEndpoint = TranslateConfig.ltEndpoint(ctx()),
         llmBase = TranslateConfig.llmBaseUrl(ctx()),
         llmModel = TranslateConfig.llmModel(ctx()),
+        llmKey = TranslateConfig.llmApiKey(ctx()),
         tts = TranslateConfig.ttsEnabled(ctx()),
+        overlayOn = TranslateConfig.overlayEnabled(ctx()),
+        overlayW = TranslateConfig.overlayWidth(ctx()),
+        overlayFont = TranslateConfig.overlayFont(ctx()),
+        overlayAlpha = TranslateConfig.overlayAlpha(ctx()),
     )
 
     override fun onCleared() {

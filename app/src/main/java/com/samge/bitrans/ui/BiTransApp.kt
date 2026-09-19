@@ -1,7 +1,10 @@
 package com.samge.bitrans.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -248,12 +251,19 @@ private fun Controls(listening: Boolean, onToggle: () -> Unit, onClear: () -> Un
 
 @Composable
 private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
+    val ctx = LocalContext.current
     var engine by remember { mutableStateOf(cur.engineKind) }
     var target by remember { mutableStateOf(cur.target) }
+    var source by remember { mutableStateOf(cur.source) }
     var ltEndpoint by remember { mutableStateOf(cur.ltEndpoint) }
     var llmBase by remember { mutableStateOf(cur.llmBase) }
     var llmModel by remember { mutableStateOf(cur.llmModel) }
+    var llmKey by remember { mutableStateOf(cur.llmKey) }
     var tts by remember { mutableStateOf(cur.tts) }
+    var overlayOn by remember { mutableStateOf(cur.overlayOn) }
+    var overlayW by remember { mutableStateOf(cur.overlayW.toFloat()) }
+    var overlayFont by remember { mutableStateOf(cur.overlayFont.toFloat()) }
+    var overlayAlpha by remember { mutableStateOf(cur.overlayAlpha.toFloat()) }
 
     Column(
         Modifier
@@ -261,8 +271,27 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("目标语言", fontWeight = FontWeight.Medium)
+        Text("翻译方向", fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(6.dp))
+        Text("源语言（说出来的话）", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = source == "auto",
+                onClick = { source = "auto" },
+                label = { Text("自动") },
+            )
+            TargetLang.entries.forEach { tl ->
+                FilterChip(
+                    selected = source == tl.code,
+                    onClick = { source = tl.code },
+                    label = { Text(tl.display) },
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("目标语言（翻译成）", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TargetLang.entries.forEach { tl ->
                 FilterChip(
@@ -309,6 +338,12 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
                     modifier = Modifier.fillMaxWidth().padding(start = 32.dp),
                     singleLine = true,
                 )
+                OutlinedTextField(
+                    value = llmKey, onValueChange = { llmKey = it },
+                    label = { Text("API Key（无鉴权可留空）") },
+                    modifier = Modifier.fillMaxWidth().padding(start = 32.dp),
+                    singleLine = true,
+                )
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -317,9 +352,48 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
             Spacer(Modifier.width(8.dp))
             Text("朗读译文 (系统 TTS)")
         }
+        Spacer(Modifier.height(16.dp))
+
+        Text("悬浮字幕（全局半透明浮窗）", fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = overlayOn,
+                onCheckedChange = { want ->
+                    if (want && !Settings.canDrawOverlays(ctx)) {
+                        // send user to system overlay-permission page once; they toggle again after granting
+                        ctx.startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + ctx.packageName),
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } else {
+                        overlayOn = want
+                    }
+                },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(if (Settings.canDrawOverlays(ctx)) "启用悬浮窗（可拖动，点按折叠）" else "需要悬浮窗权限")
+        }
+        Text("浮窗宽度", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(value = overlayW, onValueChange = { overlayW = it }, valueRange = 40f..100f, steps = 11)
+        Text("${overlayW.toInt()}% 屏宽", fontSize = 11.sp)
+        Text("字号", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(value = overlayFont, onValueChange = { overlayFont = it }, valueRange = 10f..28f, steps = 17)
+        Text("${overlayFont.toInt()}sp", fontSize = 11.sp)
+        Text("背景不透明度", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(value = overlayAlpha, onValueChange = { overlayAlpha = it }, valueRange = 20f..95f, steps = 14)
+        Text("${overlayAlpha.toInt()}%", fontSize = 11.sp)
+
         Spacer(Modifier.height(20.dp))
         Button(onClick = {
-            vm.updateSettings(AppSettings(engine, target, ltEndpoint, llmBase, llmModel, tts))
+            vm.updateSettings(
+                AppSettings(
+                    engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, tts,
+                    overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
+                )
+            )
         }) { Text("保存") }
         Spacer(Modifier.height(24.dp))
         Text(

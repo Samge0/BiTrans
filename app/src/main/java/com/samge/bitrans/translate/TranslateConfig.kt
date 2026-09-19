@@ -18,13 +18,17 @@ object TranslateConfig {
     fun targetLang(ctx: Context): String = prefs(ctx).getString("target", "en") ?: "en"
     fun setTargetLang(ctx: Context, v: String) = prefs(ctx).edit().putString("target", v).apply()
 
+    /** source language: "auto" (SenseVoice detected) or a TargetLang code */
+    fun sourceLang(ctx: Context): String = prefs(ctx).getString("source", "auto") ?: "auto"
+    fun setSourceLang(ctx: Context, v: String) = prefs(ctx).edit().putString("source", v).apply()
+
     fun ltEndpoint(ctx: Context): String = prefs(ctx).getString("lt_endpoint", "https://translate.disroot.org") ?: "https://translate.disroot.org"
     fun setLtEndpoint(ctx: Context, v: String) = prefs(ctx).edit().putString("lt_endpoint", v).apply()
 
     fun ltApiKey(ctx: Context): String = prefs(ctx).getString("lt_key", "") ?: ""
     fun setLtApiKey(ctx: Context, v: String) = prefs(ctx).edit().putString("lt_key", v).apply()
 
-    fun llmBaseUrl(ctx: Context): String = prefs(ctx).getString("llm_base", "http://192.168.50.48:16869") ?: "http://192.168.50.48:16869"
+    fun llmBaseUrl(ctx: Context): String = prefs(ctx).getString("llm_base", "http://192.168.50.48:16868") ?: "http://192.168.50.48:16868"
     fun setLlmBaseUrl(ctx: Context, v: String) = prefs(ctx).edit().putString("llm_base", v).apply()
 
     fun llmModel(ctx: Context): String = prefs(ctx).getString("llm_model", "qwen38") ?: "qwen38"
@@ -32,6 +36,16 @@ object TranslateConfig {
 
     fun llmApiKey(ctx: Context): String = prefs(ctx).getString("llm_key", "") ?: ""
     fun setLlmApiKey(ctx: Context, v: String) = prefs(ctx).edit().putString("llm_key", v).apply()
+
+    // floating overlay prefs
+    fun overlayEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("overlay_on", false)
+    fun setOverlayEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("overlay_on", v).apply()
+    fun overlayWidth(ctx: Context): Int = prefs(ctx).getInt("overlay_w", 92) // % of screen
+    fun setOverlayWidth(ctx: Context, v: Int) = prefs(ctx).edit().putInt("overlay_w", v).apply()
+    fun overlayFont(ctx: Context): Int = prefs(ctx).getInt("overlay_font", 14) // sp
+    fun setOverlayFont(ctx: Context, v: Int) = prefs(ctx).edit().putInt("overlay_font", v).apply()
+    fun overlayAlpha(ctx: Context): Int = prefs(ctx).getInt("overlay_alpha", 60) // % opacity of bg
+    fun setOverlayAlpha(ctx: Context, v: Int) = prefs(ctx).edit().putInt("overlay_alpha", v).apply()
 
     fun ttsEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("tts", true)
     fun setTtsEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("tts", v).apply()
