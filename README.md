@@ -53,3 +53,21 @@ app/src/main/java/com/samge/bitrans/
 - **Mozilla Bergamot (firefox-translations)**：Android 集成仅面向 GeckoView，独立接入成本过高
 
 最终链路在 Windows 桌面端已做 E2E 冒烟验证（RTF 0.12-0.14，五语识别全对，VAD 58ms 断句）。
+
+## 已完成的真实验证（2026-09-20）
+
+| 验证项 | 结果 |
+|---|---|
+| SenseVoice int8 五语识别（官方 test_wavs） | zh/en/ja/ko/yue 全部正确，含标点+ITN 数字 |
+| 解码延迟 | RTF 0.12–0.14（8 倍实时，CPU 单线程） |
+| silero VAD 断句 | 58ms 完成 zh.wav 分段，起点 0.73s 精准 |
+| hf-mirror 镜像散文件 | model.int8.onnx 239,233,841B 与官方 tar.bz2 内容一致 |
+| mirror 版 silero v5 | sherpa-onnx 加载+断句正常（备选源） |
+| gradle assembleDebug | BUILD SUCCESSFUL，产出 app-debug.apk (99.9MB, arm64+armv7) |
+
+## 已知边界
+
+- ML Kit 翻译需要 Google Play Services；无 GMS 设备请切换 LibreTranslate 或 LLM 引擎
+- LLM 引擎默认指向 `http://192.168.50.48:16868/v1`（LAN vLLM 别名，401 需在设置里填 key）
+- 首次模型下载约 240MB，下载源已按 hf-mirror → huggingface → github 顺序容错
+
