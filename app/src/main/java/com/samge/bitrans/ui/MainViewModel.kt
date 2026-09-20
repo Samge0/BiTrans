@@ -63,6 +63,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
+    companion object {
+        /** reserved id for the in-flight streaming (partial) caption */
+        const val PROVISIONAL_ID = -1L
+    }
+
     init {
         refreshState()
         initTts()
@@ -124,10 +129,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             mic = MicListener(
                 context = ctx(),
                 onSegment = { samples, _ -> handleSegment(samples) },
+                onPartial = { samples -> handlePartial(samples) },
                 onPartialLevel = { _level.value = it },
             ).also {
                 it.start()
                 _listening.value = true
+            }
+        }
+    }
+
+    /** Streaming: decode the growing buffer, show/refresh a provisional caption. */
+    private fun handlePartial(samples: FloatArray) {
+        viewModelScope.launch(Dispatchers.Default) {
+            val (text, lang) = try {
+                AsrEngine.decode(ctx(), samples)
+            } catch (t: Throwable) {
+                return@launch
+            }
+            if (text.isBlank()) return@launch
+            // replace the current provisional caption (same growing utterance)
+            val provisionalId = PROVISIONAL_ID
+            val existing = _captions.value.firstOrNull { it.id == provisionalId }
+            val cap = if (existing != null) {
+                existing.copy(source = text, langTag = lang, target = "", pending = true)
+            } else {
+                Caption(id = provisionalId, source = text, langTag = lang)
+            }
+            _captions.value = listOf(cap) + _captions.value.filter { it.id != provisionalId }
+            if (TranslateConfig.overlayEnabled(ctx())) {
+                com.samge.bitrans.overlay.OverlayService.push(text, "…")
             }
         }
     }
@@ -142,6 +172,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             if (text.isBlank()) return@launch
+            // authoritative final: replace the provisional caption with a real one
+            _captions.value = _captions.value.filter { it.id != PROVISIONAL_ID }
             val cap = Caption(source = text, langTag = lang)
             _captions.value = listOf(cap) + _captions.value.take(199)
             if (TranslateConfig.overlayEnabled(ctx())) {
