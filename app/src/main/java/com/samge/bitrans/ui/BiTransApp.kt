@@ -381,21 +381,34 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
             Switch(
                 checked = overlayOn,
                 onCheckedChange = { want ->
-                    if (want && !Settings.canDrawOverlays(ctx)) {
-                        // send user to system overlay-permission page once; they toggle again after granting
-                        ctx.startActivity(
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:" + ctx.packageName),
-                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    } else {
-                        overlayOn = want
+                    when {
+                        want && Settings.canDrawOverlays(ctx) -> overlayOn = true
+                        want -> {
+                            // HyperOS/MIUI blocks the grant UI for sideloaded apps;
+                            // try the MIUI-specific page first, else the generic one.
+                            try {
+                                ctx.startActivity(com.samge.bitrans.overlay.OverlayPermissionHelp.miuiIntent())
+                            } catch (_: Exception) {
+                                ctx.startActivity(com.samge.bitrans.overlay.OverlayPermissionHelp.genericIntent(ctx))
+                            }
+                        }
+                        else -> overlayOn = false
                     }
                 },
             )
             Spacer(Modifier.width(8.dp))
             Text(if (Settings.canDrawOverlays(ctx)) "启用悬浮窗（可拖动，点按折叠）" else "需要悬浮窗权限")
+        }
+        if (!Settings.canDrawOverlays(ctx)) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "小米/红米系统会拦截侧载 App 的浮窗授权。两种解法：\n" +
+                    "① 电脑连接手机执行：adb shell appops set com.samge.bitrans SYSTEM_ALERT_WINDOW allow（推荐，一次永久）\n" +
+                    "② 手机：设置→应用管理→BiTrans→权限管理→「后台弹出界面」+「显示悬浮窗」都设为允许",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.error,
+                lineHeight = 16.sp,
+            )
         }
         Text("浮窗宽度", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Slider(value = overlayW, onValueChange = { overlayW = it }, valueRange = 40f..100f, steps = 11)

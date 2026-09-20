@@ -78,13 +78,13 @@ class LibreTranslateEngine(
                 // LibreTranslate has no "yue"; zh covers Cantonese adequately
                 val srcCode = if (from == "yue") "zh" else from
                 val tgtCode = if (to == "yue") "zh" else to
-                val body = buildString {
-                    append("{\"q\":")
-                    append(jsonEscape(text))
-                    append(",\"source\":\"").append(srcCode).append("\",\"target\":\"").append(tgtCode).append("\",\"format\":\"text\"")
-                    if (apiKey.isNotBlank()) append(",\"api_key\":\"").append(jsonEscape(apiKey)).append("\"")
-                    append("}")
-                }
+                val body = org.json.JSONObject().apply {
+                    put("q", text)
+                    put("source", srcCode)
+                    put("target", tgtCode)
+                    put("format", "text")
+                    if (apiKey.isNotBlank()) put("api_key", apiKey)
+                }.toString()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText()
@@ -121,9 +121,22 @@ class LlmEngine(
                 if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
                 val prompt = "Translate this ${nameOf(from)} sentence into ${nameOf(to)}. " +
                     "Reply with the translation ONLY — no pinyin, no notes, no quotes.\n\n$text"
-                val body = "{\"model\":\"" + jsonEscape(model) + "\",\"messages\":[" +
-                    "{\"role\":\"system\",\"content\":\"You are a professional subtitle translator. Output only the translation.\"}," +
-                    "{\"role\":\"user\",\"content\":" + jsonEscape(prompt) + "}],\"temperature\":0.1,\"max_tokens\":256}"
+                // org.json escapes & validates for us (hand-rolled body had a quote-doubling bug -> vLLM 400)
+                val body = org.json.JSONObject().apply {
+                    put("model", model)
+                    put("messages", org.json.JSONArray().apply {
+                        put(org.json.JSONObject().apply {
+                            put("role", "system")
+                            put("content", "You are a professional subtitle translator. Output only the translation.")
+                        })
+                        put(org.json.JSONObject().apply {
+                            put("role", "user")
+                            put("content", prompt)
+                        })
+                    })
+                    put("temperature", 0.1)
+                    put("max_tokens", 256)
+                }.toString()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText()
@@ -188,23 +201,12 @@ internal fun parseJsonField(json: String, field: String): String? {
 }
 
 internal fun extractChatContent(json: String): String? {
-    val i = json.indexOf("\"content\"")
-    if (i < 0) return null
-    return parseJsonField(json.substring(i), "content")
-}
-
-internal fun jsonEscape(s: String): String {
-    val sb = StringBuilder("\"")
-    for (c in s) {
-        when (c) {
-            '"' -> sb.append("\\\"")
-            '\\' -> sb.append("\\\\")
-            '\n' -> sb.append("\\n")
-            '\r' -> sb.append("\\r")
-            '\t' -> sb.append("\\t")
-            else -> if (c.code < 0x20) sb.append("\\u%04x".format(c.code)) else sb.append(c)
-        }
+    return try {
+        val arr = org.json.JSONObject(json).getJSONArray("choices")
+        arr.getJSONObject(0).getJSONObject("message").optString("content")
+    } catch (_: Exception) {
+        // fallback: naive scan (keep old behavior for non-standard payloads)
+        val i = json.indexOf("\"content\"")
+        if (i < 0) null else parseJsonField(json.substring(i), "content")
     }
-    sb.append("\"")
-    return sb.toString()
 }
