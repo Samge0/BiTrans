@@ -40,6 +40,10 @@ object TranslateConfig {
     // floating overlay prefs
     fun overlayEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("overlay_on", false)
     fun setOverlayEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("overlay_on", v).apply()
+
+    /** transcript auto-scroll to newest caption (default on) */
+    fun autoScroll(ctx: Context): Boolean = prefs(ctx).getBoolean("autoscroll", true)
+    fun setAutoScroll(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("autoscroll", v).apply()
     fun overlayWidth(ctx: Context): Int = prefs(ctx).getInt("overlay_w", 92) // % of screen
     fun setOverlayWidth(ctx: Context, v: Int) = prefs(ctx).edit().putInt("overlay_w", v).apply()
     fun overlayFont(ctx: Context): Int = prefs(ctx).getInt("overlay_font", 14) // sp

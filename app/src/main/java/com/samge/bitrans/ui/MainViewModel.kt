@@ -37,6 +37,7 @@ data class AppSettings(
     val overlayW: Int,
     val overlayFont: Int,
     val overlayAlpha: Int,
+    val autoScroll: Boolean,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -206,6 +207,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** UI toggle: auto-follow newest caption vs manual browsing (persisted immediately) */
+    fun setAutoScroll(v: Boolean) {
+        TranslateConfig.setAutoScroll(ctx(), v)
+        _settings.value = loadSettings()
+    }
+
     fun clearCaptions() {
         _captions.value = emptyList()
     }
@@ -223,6 +230,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         TranslateConfig.setOverlayWidth(ctx(), s.overlayW)
         TranslateConfig.setOverlayFont(ctx(), s.overlayFont)
         TranslateConfig.setOverlayAlpha(ctx(), s.overlayAlpha)
+        TranslateConfig.setAutoScroll(ctx(), s.autoScroll)
         _settings.value = loadSettings()
         // sync overlay lifecycle with the setting
         if (s.overlayOn) {
@@ -245,6 +253,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         overlayW = TranslateConfig.overlayWidth(ctx()),
         overlayFont = TranslateConfig.overlayFont(ctx()),
         overlayAlpha = TranslateConfig.overlayAlpha(ctx()),
+        autoScroll = TranslateConfig.autoScroll(ctx()),
     )
 
     override fun onCleared() {

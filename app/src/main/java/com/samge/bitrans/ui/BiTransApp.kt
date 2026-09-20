@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,7 +90,11 @@ fun BiTransApp(vm: MainViewModel) {
                     if (showSettings) {
                         SettingsPane(vm, settings)
                     } else {
-                        TranscriptPane(captions, Modifier.weight(1f))
+                        TranscriptPane(captions, Modifier.weight(1f), settings.autoScroll)
+                        AutoScrollToggle(
+                            autoScroll = settings.autoScroll,
+                            onChange = { vm.setAutoScroll(it) },
+                        )
                         Spacer(Modifier.height(8.dp))
                         StatusRow(status, level, listening)
                         Spacer(Modifier.height(8.dp))
@@ -148,9 +153,34 @@ private fun DownloadingPane(s: UiState.Downloading) {
 }
 
 @Composable
-private fun TranscriptPane(captions: List<com.samge.bitrans.data.Caption>, modifier: Modifier) {
+private fun TranscriptPane(
+    captions: List<com.samge.bitrans.data.Caption>,
+    modifier: Modifier,
+    autoScroll: Boolean,
+) {
+    val listState = rememberLazyListState()
+    var userScrolling by remember { mutableStateOf(false) }
+
+    // newest caption id (list is reverseLayout: index 0 == newest)
+    val newestId = captions.firstOrNull()?.id
+
+    LaunchedEffect(newestId, autoScroll) {
+        if (autoScroll && newestId != null && !userScrolling) {
+            listState.animateScrollToItem(0)
+        }
+    }
+
+    // detect manual browsing: user drags away from newest -> pause auto-follow
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { idx ->
+                userScrolling = idx > 0 // viewing history (not at newest)
+            }
+    }
+
     LazyColumn(
-        modifier
+        state = listState,
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
         reverseLayout = true,
@@ -159,6 +189,24 @@ private fun TranscriptPane(captions: List<com.samge.bitrans.data.Caption>, modif
             CaptionCard(cap)
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+@Composable
+private fun AutoScrollToggle(autoScroll: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Switch(checked = autoScroll, onCheckedChange = onChange, modifier = Modifier.height(28.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (autoScroll) "自动滚动到最新" else "手动浏览模式",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -285,6 +333,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
     var overlayW by remember { mutableStateOf(cur.overlayW.toFloat()) }
     var overlayFont by remember { mutableStateOf(cur.overlayFont.toFloat()) }
     var overlayAlpha by remember { mutableStateOf(cur.overlayAlpha.toFloat()) }
+    var autoScroll by remember { mutableStateOf(cur.autoScroll) }
 
     Column(
         Modifier
@@ -373,6 +422,11 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
             Spacer(Modifier.width(8.dp))
             Text("朗读译文 (系统 TTS)")
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = autoScroll, onCheckedChange = { autoScroll = it })
+            Spacer(Modifier.width(8.dp))
+            Text("字幕自动滚动到最新")
+        }
         Spacer(Modifier.height(16.dp))
 
         Text("悬浮字幕（全局半透明浮窗）", fontWeight = FontWeight.Medium)
@@ -427,6 +481,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
                     AppSettings(
                         engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, tts,
                         overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
+                        autoScroll,
                     )
                 )
             }) { Text("保存") }
@@ -436,6 +491,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
                     AppSettings(
                         engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, tts,
                         overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
+                        autoScroll,
                     )
                 )
                 vm.runEngineSelfTest()
