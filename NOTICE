@@ -1,0 +1,43 @@
+BiTrans
+Copyright 2026 Samge0
+
+This product includes software and models from the following sources:
+
+====================================================================
+sherpa-onnx (https://github.com/k2-fsa/sherpa-onnx)
+====================================================================
+Copyright (c) 2022-2025 Xiaomi Corporation
+Licensed under the Apache License, Version 2.0.
+Used as: on-device speech recognition inference engine (sherpa-onnx-1.13.8.aar,
+bundles ONNX Runtime). Site: https://k2-fsa.github.io/sherpa-onnx/
+
+====================================================================
+silero-vad (https://github.com/snakers4/silero-vad)
+====================================================================
+Copyright (c) 2020-present Silero Team
+Licensed under the MIT License.
+Used as: voice activity detection model (silero_vad.onnx)
+
+====================================================================
+SenseVoice (https://github.com/modelscope/FunASR / FunAudioLLM)
+====================================================================
+Copyright (c) 2024 Alibaba Inc. (FunAudioLLM / FunASR)
+Model weights: sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8
+Model license: FunASR Model License (https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE)
+- permits commercial and non-commercial use with attribution
+- the int8 onnx export is fetched at runtime from public mirrors
+  (huggingface.co / hf-mirror.com), NOT bundled in this repository
+
+====================================================================
+Optional translation backends (not linked, user-configured at runtime)
+====================================================================
+- ML Kit on-device translation (Google) — free GMS component
+- LibreTranslate (https://github.com/LibreTranslate/LibreTranslate) — AGPL-3.0,
+  used as a remote HTTP service only; this application is a client
+- Any OpenAI-compatible chat completions endpoint (e.g. self-hosted vLLM)
+
+====================================================================
+Android, Kotlin, Jetpack Compose, ML Kit client library
+====================================================================
+Copyright (c) Google LLC / The Android Open Source Project
+Licensed under the Apache License, Version 2.0

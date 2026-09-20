@@ -1,8 +1,20 @@
+import java.util.Base64
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// CI signing: secrets provide the keystore (base64) + passwords.
+// Local builds fall back to the debug key automatically.
+val ciKeystoreB64 = System.getenv("KEYSTORE_BASE64")
+val ciStorePass = System.getenv("KEYSTORE_PASSWORD")
+val ciKeyAlias = System.getenv("KEY_ALIAS")
+val ciKeyPass = System.getenv("KEY_PASSWORD")
+val hasCiSigning = !ciKeystoreB64.isNullOrBlank() && !ciStorePass.isNullOrBlank()
 
 android {
     namespace = "com.samge.bitrans"
@@ -20,9 +32,26 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasCiSigning) {
+            create("ci") {
+                val tmp = File.createTempFile("bitrans", ".jks")
+                tmp.writeBytes(Base64.getDecoder().decode(ciKeystoreB64))
+                storeFile = tmp
+                storePassword = ciStorePass
+                keyAlias = ciKeyAlias
+                keyPassword = ciKeyPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasCiSigning) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
