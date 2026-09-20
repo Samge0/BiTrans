@@ -22,16 +22,18 @@ object AsrEngine {
 
     @Volatile private var recognizer: OfflineRecognizer? = null
     @Volatile private var vad: Vad? = null
+    @Volatile private var currentLangKey: String = "auto"
     private val lock = Any()
 
     fun ready(ctx: Context): Boolean = ModelStore.asrReady(ctx)
 
     /**
      * Decode one utterance (float samples 16k mono, range [-1,1]).
-     * Returns (text, langTag) — langTag like "zh" "en" "ja" "ko" "yue" from SenseVoice.
+     * langHint: "auto" (SenseVoice detects) or a fixed code (zh/en/ja/ko/yue).
+     * Returns (text, langTag).
      */
-    fun decode(ctx: Context, samples: FloatArray): Pair<String, String> {
-        val rec = getRecognizer(ctx)
+    fun decode(ctx: Context, samples: FloatArray, langHint: String = "auto"): Pair<String, String> {
+        val rec = getRecognizer(ctx, langHint)
         val stream = rec.createStream()
         try {
             stream.acceptWaveform(samples, 16000)
@@ -44,17 +46,24 @@ object AsrEngine {
         }
     }
 
-    fun getRecognizer(ctx: Context): OfflineRecognizer {
-        recognizer?.let { return it }
+    /**
+     * Recognizer is built per language mode; switching source-language setting
+     * triggers an async rebuild (model load takes a few seconds, done off-thread).
+     */
+    fun getRecognizer(ctx: Context, langHint: String = "auto"): OfflineRecognizer {
+        val key = if (langHint == "auto" || langHint.isBlank()) "auto" else langHint
+        recognizer?.let { if (currentLangKey == key) return it }
         synchronized(lock) {
-            recognizer?.let { return it }
+            recognizer?.let { if (currentLangKey == key) return it }
+            recognizer?.release()
             val dir = ModelStore.asrModelDir(ctx)
             val config = OfflineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
                 modelConfig = OfflineModelConfig(
                     senseVoice = OfflineSenseVoiceModelConfig(
                         model = File(dir, "model.int8.onnx").absolutePath,
-                        language = "", // auto-detect among zh/en/ja/ko/yue
+                        // empty = auto-detect; fixed code forces the language token
+                        language = if (key == "auto") "" else key,
                         useInverseTextNormalization = true,
                     ),
                     tokens = File(dir, "tokens.txt").absolutePath,
@@ -64,8 +73,23 @@ object AsrEngine {
             )
             val r = OfflineRecognizer(assetManager = null, config = config)
             recognizer = r
+            currentLangKey = key
+            Log.i(TAG, "recognizer built for lang=$key")
             return r
         }
+    }
+
+    /** Pre-warm in background (called when listening starts / source lang changes). */
+    fun warmUp(ctx: Context, langHint: String) {
+        synchronized(lock) {
+            val key = if (langHint == "auto" || langHint.isBlank()) "auto" else langHint
+            if (currentLangKey == key && recognizer != null) return
+        }
+        Thread {
+            try { getRecognizer(ctx, langHint) } catch (t: Throwable) {
+                Log.e(TAG, "warmUp failed", t)
+            }
+        }.start()
     }
 
     fun getVad(ctx: Context): Vad {

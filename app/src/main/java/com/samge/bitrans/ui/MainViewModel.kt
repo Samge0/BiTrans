@@ -134,15 +134,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ).also {
                 it.start()
                 _listening.value = true
+                // pre-build the recognizer for the configured source language
+                AsrEngine.warmUp(ctx(), TranslateConfig.sourceLang(ctx()))
             }
         }
     }
 
-    /** Streaming: decode the growing buffer, show/refresh a provisional caption. */
+    /** Streaming: decode the growing buffer, show/refresh a provisional caption.
+     *  Translation follows dynamically with throttling (only when text actually changed). */
     private fun handlePartial(samples: FloatArray) {
         viewModelScope.launch(Dispatchers.Default) {
+            val srcLang = TranslateConfig.sourceLang(ctx())
             val (text, lang) = try {
-                AsrEngine.decode(ctx(), samples)
+                AsrEngine.decode(ctx(), samples, srcLang)
             } catch (t: Throwable) {
                 return@launch
             }
@@ -150,6 +154,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // replace the current provisional caption (same growing utterance)
             val provisionalId = PROVISIONAL_ID
             val existing = _captions.value.firstOrNull { it.id == provisionalId }
+            val prevText = existing?.source ?: ""
             val cap = if (existing != null) {
                 existing.copy(source = text, langTag = lang, target = "", pending = true)
             } else {
@@ -159,14 +164,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (TranslateConfig.overlayEnabled(ctx())) {
                 com.samge.bitrans.overlay.OverlayService.push(text, "…")
             }
+            // translate partials too — but only when the text meaningfully changed
+            if (text != prevText) translateCaption(cap, isPartial = true)
         }
     }
 
     private fun handleSegment(samples: FloatArray) {
         if (samples.size < 16000 * 3 / 10) return // <0.3s noise
         viewModelScope.launch(Dispatchers.Default) {
+            val srcLang = TranslateConfig.sourceLang(ctx())
             val (text, lang) = try {
-                AsrEngine.decode(ctx(), samples)
+                AsrEngine.decode(ctx(), samples, srcLang)
             } catch (t: Throwable) {
                 _status.value = "ASR: ${t.message}"
                 return@launch
@@ -183,7 +191,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun translateCaption(cap: Caption) {
+    private fun translateCaption(cap: Caption, isPartial: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             val targetCode = TranslateConfig.targetLang(ctx())
             val sourceCode = TranslateConfig.sourceLang(ctx())
@@ -195,7 +203,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val result = if (skip) Result.success(cap.source) else engine.translate(cap.source, effectiveSource, targetCode)
             val translated = result.getOrDefault("")
             val updated = _captions.value.map {
-                if (it.id == cap.id) it.copy(target = translated, pending = false) else it
+                // partial results update the provisional slot; finals match by real id
+                if ((isPartial && it.id == PROVISIONAL_ID) || it.id == cap.id) {
+                    it.copy(target = translated, pending = false)
+                } else it
             }
             _captions.value = updated
             // push to global overlay if enabled
@@ -203,9 +214,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 com.samge.bitrans.overlay.OverlayService.push(cap.source, translated)
             }
             result.onSuccess { t ->
-                if (t.isNotBlank() && TranslateConfig.ttsEnabled(ctx())) speak(t, targetCode)
+                if (!isPartial && t.isNotBlank() && TranslateConfig.ttsEnabled(ctx())) speak(t, targetCode)
             }.onFailure { e ->
-                _status.value = "翻译(${engine.name}): ${e.message}"
+                // stale-partial failures are noise; surface only final failures
+                if (!isPartial) _status.value = "翻译(${engine.name}): ${e.message}"
             }
         }
     }
