@@ -12,11 +12,11 @@ android {
         applicationId = "com.samge.bitrans"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
         ndk {
-            // physical phones only; x86/x86_64 (emulator) excluded to halve APK size
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // physical arm64 phone only (Xiaomi HyperOS target); halves transfer size
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
