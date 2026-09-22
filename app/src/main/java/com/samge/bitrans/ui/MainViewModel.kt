@@ -161,8 +161,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 Caption(id = provisionalId, source = text, langTag = lang)
             }
             _captions.value = listOf(cap) + _captions.value.filter { it.id != provisionalId }
-            if (TranslateConfig.overlayEnabled(ctx())) {
+            val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
+                android.provider.Settings.canDrawOverlays(ctx())
+            if (overlayOk) {
                 com.samge.bitrans.overlay.OverlayService.push(text, "…")
+            } else if (_listening.value) {
+                com.samge.bitrans.listen.ListenService.updateCaption(ctx(), text, "")
             }
             // translate partials too — but only when the text meaningfully changed
             if (text != prevText) translateCaption(cap, isPartial = true)
@@ -211,9 +215,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 } else it
             }
             _captions.value = updated
-            // push to global overlay if enabled
-            if (TranslateConfig.overlayEnabled(ctx())) {
+            val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
+                android.provider.Settings.canDrawOverlays(ctx())
+            // push to global overlay if enabled and permitted
+            if (overlayOk) {
                 com.samge.bitrans.overlay.OverlayService.push(cap.source, translated)
+            }
+            // notification-shade captions: fallback when overlay is blocked,
+            // or when user runs backgrounded without the overlay
+            if (!overlayOk && _listening.value) {
+                com.samge.bitrans.listen.ListenService.updateCaption(ctx(), cap.source, translated)
             }
             result.onSuccess { t ->
                 if (!isPartial && t.isNotBlank() && TranslateConfig.ttsEnabled(ctx())) speak(t, targetCode)

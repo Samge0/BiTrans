@@ -456,9 +456,11 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
         if (!Settings.canDrawOverlays(ctx)) {
             Spacer(Modifier.height(4.dp))
             Text(
-                "小米/红米系统会拦截侧载 App 的浮窗授权。两种解法：\n" +
-                    "① 电脑连接手机执行：adb shell appops set com.samge.bitrans SYSTEM_ALERT_WINDOW allow（推荐，一次永久）\n" +
-                    "② 手机：设置→应用管理→BiTrans→权限管理→「后台弹出界面」+「显示悬浮窗」都设为允许",
+                "系统限制了侧载应用的浮窗权限，按品牌解锁：\n" +
+                    "OPPO/一加：应用权限设置页右上角点「验证」，通过后解除所有限制\n" +
+                    "小米/红米：开发者选项开「USB 调试(安全设置)」后电脑执行 adb shell appops set com.samge.bitrans SYSTEM_ALERT_WINDOW allow\n" +
+                    "其他：设置→应用→BiTrans→悬浮窗/后台弹出界面 允许\n" +
+                    "未解锁时开启监听，字幕将显示在通知栏（下拉可见）",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.error,
                 lineHeight = 16.sp,
