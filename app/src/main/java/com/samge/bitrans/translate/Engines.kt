@@ -105,6 +105,7 @@ class LlmEngine(
     private val baseUrl: String,
     private val model: String,
     private val apiKey: String = "",
+    private val noThinkMode: String = "all", // all | chat_template_kwargs | none
 ) : TranslateEngine {
     override val name = "LLM"
 
@@ -136,6 +137,24 @@ class LlmEngine(
                     })
                     put("temperature", 0.1)
                     put("max_tokens", 256)
+                    put("stream", false)
+                    if (noThinkMode != "none") {
+                        // Belt-and-suspenders "disable thinking" for the known LLM families.
+                        // Servers ignore fields they don't know; thinking models that read
+                        // any of these will skip their reasoning pass -> fast, no timeouts.
+                        //  - vLLM (Qwen3 / DeepSeek / GLM / Hunyuan … chat-template flag)
+                        if (noThinkMode == "all") {
+                            put("chat_template_kwargs", org.json.JSONObject().put("enable_thinking", false))
+                        }
+                        //  - OpenAI o-series / GPT-5 thinking family
+                        put("reasoning_effort", "low")
+                        //  - OpenAI-compatible "extended thinking" (Anthropic-style relays)
+                        put("thinking", org.json.JSONObject().put("type", "disabled"))
+                        //  - Qwen/OpenRouter style
+                        put("reasoning", org.json.JSONObject().put("enabled", false))
+                        //  - generic hint honored by some gateways
+                        put("disable_thinking", true)
+                    }
                 }.toString()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode

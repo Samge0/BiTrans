@@ -2,6 +2,7 @@ package com.samge.bitrans.ui
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import android.speech.tts.TextToSpeech
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -32,13 +33,62 @@ data class AppSettings(
     val llmBase: String,
     val llmModel: String,
     val llmKey: String,
+    val llmNoThink: String,
     val tts: Boolean,
     val overlayOn: Boolean,
     val overlayW: Int,
     val overlayFont: Int,
     val overlayAlpha: Int,
+    val overlayLines: Int,
     val autoScroll: Boolean,
-)
+) {
+    /** JSON for export — deliberately excludes apiKey (security) */
+    fun toJson(): String = org.json.JSONObject().apply {
+        put("app", "BiTrans")
+        put("schema", 1)
+        put("engineKind", engineKind)
+        put("target", target)
+        put("source", source)
+        put("ltEndpoint", ltEndpoint)
+        put("llmBase", llmBase)
+        put("llmModel", llmModel)
+        put("llmNoThink", llmNoThink)
+        put("tts", tts)
+        put("overlayOn", overlayOn)
+        put("overlayW", overlayW)
+        put("overlayFont", overlayFont)
+        put("overlayAlpha", overlayAlpha)
+        put("overlayLines", overlayLines)
+        put("autoScroll", autoScroll)
+    }.toString(2)
+
+    companion object {
+        fun fromJson(json: String): AppSettings? {
+            return try {
+                val o = org.json.JSONObject(json)
+                if (o.optString("app") != "BiTrans") null else AppSettings(
+                    engineKind = o.optString("engineKind", "mlkit"),
+                    target = o.optString("target", "en"),
+                    source = o.optString("source", "auto"),
+                    ltEndpoint = o.optString("ltEndpoint", "https://translate.disroot.org"),
+                    llmBase = o.optString("llmBase", "http://192.168.50.48:16868"),
+                    llmModel = o.optString("llmModel", "qwen38"),
+                    llmKey = "", // never imported
+                    llmNoThink = o.optString("llmNoThink", "all"),
+                    tts = o.optBoolean("tts", true),
+                    overlayOn = o.optBoolean("overlayOn", false),
+                    overlayW = o.optInt("overlayW", 92),
+                    overlayFont = o.optInt("overlayFont", 14),
+                    overlayAlpha = o.optInt("overlayAlpha", 60),
+                    overlayLines = o.optInt("overlayLines", 1),
+                    autoScroll = o.optBoolean("autoScroll", true),
+                )
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+}
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow<UiState>(UiState.NeedsModels)
@@ -164,7 +214,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
                 android.provider.Settings.canDrawOverlays(ctx())
             if (overlayOk) {
-                com.samge.bitrans.overlay.OverlayService.push(text, "…")
+                com.samge.bitrans.overlay.OverlayService.push(ctx(), text, "", provisional = true)
             } else if (_listening.value) {
                 com.samge.bitrans.listen.ListenService.updateCaption(ctx(), text, "")
             }
@@ -184,14 +234,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             if (text.isBlank()) return@launch
-            // final arrives: retire the provisional slot ONLY if it was for earlier
-            // content; the provisional already carries the newest utterance (partial
-            // timeline restarts right after commit), so drop it — the final replaces it.
             _captions.value = _captions.value.filter { it.id != PROVISIONAL_ID }
             val cap = Caption(source = text, langTag = lang)
             _captions.value = listOf(cap) + _captions.value.take(199)
-            if (TranslateConfig.overlayEnabled(ctx())) {
-                com.samge.bitrans.overlay.OverlayService.push(text, "")
+            val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
+                android.provider.Settings.canDrawOverlays(ctx())
+            if (overlayOk) {
+                com.samge.bitrans.overlay.OverlayService.push(ctx(), text, "", provisional = false)
+            } else if (_listening.value) {
+                com.samge.bitrans.listen.ListenService.updateCaption(ctx(), text, "")
             }
             translateCaption(cap)
         }
@@ -219,7 +270,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 android.provider.Settings.canDrawOverlays(ctx())
             // push to global overlay if enabled and permitted
             if (overlayOk) {
-                com.samge.bitrans.overlay.OverlayService.push(cap.source, translated)
+                com.samge.bitrans.overlay.OverlayService.push(ctx(), cap.source, translated, provisional = isPartial)
             }
             // notification-shade captions: fallback when overlay is blocked,
             // or when user runs backgrounded without the overlay
@@ -282,11 +333,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         TranslateConfig.setLlmBaseUrl(ctx(), s.llmBase)
         TranslateConfig.setLlmModel(ctx(), s.llmModel)
         TranslateConfig.setLlmApiKey(ctx(), s.llmKey)
+        TranslateConfig.setLlmNoThinkMode(ctx(), s.llmNoThink)
         TranslateConfig.setTtsEnabled(ctx(), s.tts)
         TranslateConfig.setOverlayEnabled(ctx(), s.overlayOn)
         TranslateConfig.setOverlayWidth(ctx(), s.overlayW)
         TranslateConfig.setOverlayFont(ctx(), s.overlayFont)
         TranslateConfig.setOverlayAlpha(ctx(), s.overlayAlpha)
+        TranslateConfig.setOverlayLines(ctx(), s.overlayLines)
         TranslateConfig.setAutoScroll(ctx(), s.autoScroll)
         _settings.value = loadSettings()
         // sync overlay lifecycle with the setting
@@ -294,6 +347,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             com.samge.bitrans.overlay.OverlayService.start(ctx())
         } else {
             com.samge.bitrans.overlay.OverlayService.stop(ctx())
+        }
+    }
+
+    fun refreshAll() {
+        _settings.value = loadSettings()
+    }
+
+    /** Export settings JSON (no API key) to a user-picked uri */
+    fun exportSettings(ctx: Context, uri: Uri, s: AppSettings) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(s.toJson().toByteArray(Charsets.UTF_8))
+                }
+                withContext(Dispatchers.Main) { _status.value = "配置已导出" }
+            } catch (t: Throwable) {
+                withContext(Dispatchers.Main) { _status.value = "导出失败: ${t.message}" }
+            }
+        }
+    }
+
+    /** Import settings JSON from a user-picked uri; applies via updateSettings */
+    fun importSettings(ctx: Context, uri: Uri, onDone: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = try {
+                val json = ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    input.bufferedReader().readText()
+                } ?: return@launch onDone(false)
+                val parsed = AppSettings.fromJson(json) ?: return@launch onDone(false)
+                // keep current API key (never imported)
+                val merged = parsed.copy(llmKey = TranslateConfig.llmApiKey(ctx()))
+                withContext(Dispatchers.Main) { updateSettings(merged) }
+                true
+            } catch (t: Throwable) {
+                false
+            }
+            withContext(Dispatchers.Main) { onDone(ok) }
         }
     }
 
@@ -305,11 +395,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         llmBase = TranslateConfig.llmBaseUrl(ctx()),
         llmModel = TranslateConfig.llmModel(ctx()),
         llmKey = TranslateConfig.llmApiKey(ctx()),
+        llmNoThink = TranslateConfig.llmNoThinkMode(ctx()),
         tts = TranslateConfig.ttsEnabled(ctx()),
         overlayOn = TranslateConfig.overlayEnabled(ctx()),
         overlayW = TranslateConfig.overlayWidth(ctx()),
         overlayFont = TranslateConfig.overlayFont(ctx()),
         overlayAlpha = TranslateConfig.overlayAlpha(ctx()),
+        overlayLines = TranslateConfig.overlayLines(ctx()),
         autoScroll = TranslateConfig.autoScroll(ctx()),
     )
 

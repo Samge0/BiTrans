@@ -37,9 +37,17 @@ object TranslateConfig {
     fun llmApiKey(ctx: Context): String = prefs(ctx).getString("llm_key", "") ?: ""
     fun setLlmApiKey(ctx: Context, v: String) = prefs(ctx).edit().putString("llm_key", v).apply()
 
+    /** which no-thinking payload keys to attach (user-selectable; default = all known) */
+    fun llmNoThinkMode(ctx: Context): String = prefs(ctx).getString("llm_nothink", "all") ?: "all"
+    fun setLlmNoThinkMode(ctx: Context, v: String) = prefs(ctx).edit().putString("llm_nothink", v).apply()
+
     // floating overlay prefs
     fun overlayEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("overlay_on", false)
     fun setOverlayEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("overlay_on", v).apply()
+
+    /** overlay caption history lines (1-10) */
+    fun overlayLines(ctx: Context): Int = prefs(ctx).getInt("overlay_lines", 1)
+    fun setOverlayLines(ctx: Context, v: Int) = prefs(ctx).edit().putInt("overlay_lines", v).apply()
 
     /** transcript auto-scroll to newest caption (default on) */
     fun autoScroll(ctx: Context): Boolean = prefs(ctx).getBoolean("autoscroll", true)
@@ -56,7 +64,7 @@ object TranslateConfig {
 
     fun currentEngine(ctx: Context): TranslateEngine = when (engineKind(ctx)) {
         "libre" -> LibreTranslateEngine(ltEndpoint(ctx), ltApiKey(ctx))
-        "llm" -> LlmEngine(llmBaseUrl(ctx), llmModel(ctx), llmApiKey(ctx))
+        "llm" -> LlmEngine(llmBaseUrl(ctx), llmModel(ctx), llmApiKey(ctx), llmNoThinkMode(ctx))
         else -> MlKitEngine(ctx)
     }
 }

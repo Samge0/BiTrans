@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -23,23 +22,21 @@ import com.samge.bitrans.translate.TranslateConfig
 import kotlin.math.abs
 
 /**
- * Global semi-transparent caption overlay drawn above other apps (e.g. Hilokal).
- * - draggable anywhere on screen
- * - width / font size / background opacity from settings
- * - tap to collapse/expand
- * Content is pushed from MainViewModel via [push].
+ * Global semi-transparent caption overlay (Apple-style: dark-tile surface, lg
+ * radius, hairline dividers, no shadows). Shows the last N caption pairs
+ * (N = user setting, 1..10). Draggable; tap toggles collapse.
  */
 class OverlayService : Service() {
 
     private var wm: WindowManager? = null
-    private var root: LinearLayout? = null
+    private var box: LinearLayout? = null
+    private var rows: LinearLayout? = null
     private val main = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val action = intent?.action
-        if (action == ACTION_STOP) {
+        if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -47,11 +44,8 @@ class OverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (root == null) {
-            createOverlay()
-        } else {
-            applyStyle() // settings may have changed
-        }
+        if (box == null) createOverlay()
+        main.post { rebuild(); applyStyle() }
         return START_STICKY
     }
 
@@ -67,42 +61,25 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         )
         lp.gravity = Gravity.TOP or Gravity.START
         lp.x = 0
         lp.y = 120
 
-        val src = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            alpha = 0.85f
-        }
-        val tgt = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 14f
-        }
-        val box = LinearLayout(this).apply {
+        val rowsView = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            addView(src)
-            addView(tgt)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            addView(rowsView)
         }
 
-        val bg = GradientDrawable().apply {
-            cornerRadius = dp(14).toFloat()
-            setColor(Color.argb(alphaPct(), 12, 12, 20))
-        }
-        box.background = bg
-
-        // drag + tap-to-collapse
         var downX = 0f; var downY = 0f
         var startLpX = 0; var startLpY = 0
         var moved = false
         var collapsed = false
-        box.setOnTouchListener { _, e ->
+        container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = e.rawX; downY = e.rawY
@@ -115,14 +92,14 @@ class OverlayService : Service() {
                     if (abs(dx) > 8 || abs(dy) > 8) moved = true
                     lp.x = startLpX + dx
                     lp.y = startLpY + dy
-                    runCatching { wm?.updateViewLayout(box, lp) }
+                    runCatching { wm?.updateViewLayout(container, lp) }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!moved) {
                         collapsed = !collapsed
-                        src.visibility = if (collapsed) View.GONE else View.VISIBLE
-                        if (collapsed) box.alpha = 0.45f else box.alpha = 1f
+                        rowsView.visibility = if (collapsed) View.GONE else View.VISIBLE
+                        container.alpha = if (collapsed) 0.45f else 1f
                     }
                     true
                 }
@@ -130,28 +107,55 @@ class OverlayService : Service() {
             }
         }
 
-        root = box
-        sourceView = src
-        targetView = tgt
-        wm?.addView(box, lp)
-        applyStyle()
+        box = container
+        rows = rowsView
+        wm?.addView(container, lp)
         serviceRunning = true
     }
 
     private fun applyStyle() {
-        val box = root ?: return
+        val container = box ?: return
         val dm = resources.displayMetrics
         val widthPx = (dm.widthPixels * TranslateConfig.overlayWidth(this) / 100)
+        (container.layoutParams as? WindowManager.LayoutParams)?.let {
+            if (it.width != widthPx) {
+                it.width = widthPx
+                runCatching { wm?.updateViewLayout(container, it) }
+            }
+        } ?: run { container.minimumWidth = widthPx }
+        container.background = GradientDrawable().apply {
+            cornerRadius = dp(18).toFloat() // rounded.lg (Apple tokens)
+            setColor(Color.argb(alphaPct(), 0x27, 0x27, 0x29)) // DarkTile #272729
+        }
+    }
+
+    private fun rebuild() {
+        val rowsView = rows ?: return
         val fontSp = TranslateConfig.overlayFont(this).toFloat()
-        (box.layoutParams as? WindowManager.LayoutParams)?.let {
-            it.width = widthPx
-            wm?.updateViewLayout(box, it)
-        } ?: run { box.minimumWidth = widthPx }
-        targetView?.textSize = fontSp
-        sourceView?.textSize = (fontSp * 0.8f)
-        box.background = GradientDrawable().apply {
-            cornerRadius = dp(14).toFloat()
-            setColor(Color.argb(alphaPct(), 12, 12, 20))
+        val maxLines = TranslateConfig.overlayLines(this).coerceIn(1, 10)
+        rowsView.removeAllViews()
+        val snapshot = synchronized(history) { history.toList().takeLast(maxLines) }
+        snapshot.forEachIndexed { idx, (src, tgt) ->
+            val srcView = TextView(this).apply {
+                text = src
+                setTextColor(0xFFCCCCCC.toInt())
+                textSize = fontSp * 0.82f
+            }
+            val tgtView = TextView(this).apply {
+                text = tgt.ifBlank { "…" }
+                setTextColor(Color.WHITE)
+                textSize = fontSp
+            }
+            rowsView.addView(srcView)
+            rowsView.addView(tgtView)
+            if (idx != snapshot.lastIndex) {
+                rowsView.addView(View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, dp(1),
+                    ).also { it.setMargins(0, dp(6), 0, dp(6)) }
+                    setBackgroundColor(0x2EFFFFFF)
+                })
+            }
         }
     }
 
@@ -159,26 +163,33 @@ class OverlayService : Service() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
     override fun onDestroy() {
-        root?.let { runCatching { wm?.removeView(it) } }
-        root = null
+        box?.let { runCatching { wm?.removeView(it) } }
+        box = null
+        rows = null
         serviceRunning = false
+        instance = null
         super.onDestroy()
     }
 
     companion object {
         private const val ACTION_STOP = "com.samge.bitrans.overlay.STOP"
         @Volatile private var serviceRunning = false
-        @Volatile private var sourceView: TextView? = null
-        @Volatile private var targetView: TextView? = null
         private val ui = Handler(Looper.getMainLooper())
+
+        /** caption history shared with the service (guarded by itself) */
+        private val history = ArrayDeque<Pair<String, String>>()
+        @Volatile private var instance: OverlayService? = null
 
         fun running(): Boolean = serviceRunning
 
         fun start(ctx: Context) {
             if (!Settings.canDrawOverlays(ctx)) return
-            // plain startService: this is NOT a foreground service (no notification),
-            // and callers are always in-foreground (Settings pane / listening toggle).
             runCatching { ctx.startService(Intent(ctx, OverlayService::class.java)) }
         }
 
@@ -188,11 +199,36 @@ class OverlayService : Service() {
             }
         }
 
-        /** Push a caption to the overlay (safe from any thread). */
-        fun push(source: String, target: String) {
+        fun clear() {
+            synchronized(history) { history.clear() }
+        }
+
+        /**
+         * Push a caption pair. Provisional (still-growing utterance) updates merge
+         * into the newest line; completed captions append and trim to N lines.
+         */
+        fun push(ctx: Context, source: String, target: String, provisional: Boolean) {
             ui.post {
-                sourceView?.text = source
-                targetView?.text = if (target.isBlank()) "…" else target
+                val maxLines = runCatching { TranslateConfig.overlayLines(ctx) }
+                    .getOrDefault(1).coerceIn(1, 10)
+                synchronized(history) {
+                    val last = history.lastOrNull()
+                    if (provisional && last != null && last.first == source) {
+                        history.removeLast()
+                        history.addLast(source to target)
+                    } else if (provisional) {
+                        // a newer utterance started mid-provisional: replace stale provisional
+                        history.removeLastOrNull()
+                        history.addLast(source to target)
+                    } else {
+                        history.addLast(source to target)
+                        while (history.size > maxLines) history.removeFirst()
+                    }
+                }
+                instance?.main?.post {
+                    instance?.rebuild()
+                    instance?.applyStyle()
+                }
             }
         }
     }

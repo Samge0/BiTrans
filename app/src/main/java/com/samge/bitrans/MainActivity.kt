@@ -16,9 +16,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val vm: MainViewModel = viewModel()
-            val context = LocalContext.current
-            BiTransApp(vm)
+            com.samge.bitrans.ui.theme.BiTransTheme {
+                val vm: MainViewModel = viewModel()
+                val context = LocalContext.current
+                BiTransApp(vm)
+            }
         }
     }
 }
