@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import android.util.Log
 import java.util.Locale
 
@@ -121,9 +122,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var ttsReady = false
     private var sessionStartAt = 0L
 
+    /** guards all read-modify-write cycles on _captions (partial/final/translate race) */
+    private val captionsMutex = kotlinx.coroutines.sync.Mutex()
+
     companion object {
         /** reserved id for the in-flight streaming (partial) caption */
         const val PROVISIONAL_ID = -1L
+
+        /** monotonic unique caption ids — currentTimeMillis collides within same ms (LazyColumn duplicate-key crash) */
+        private val nextId = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+
+        fun newCaptionId(): Long = nextId.incrementAndGet()
+
+        /** bumped by every final: in-flight partial decodes whose epoch mismatches are stale */
+        private val partialCounter = java.util.concurrent.atomic.AtomicLong(0)
     }
 
     init {
@@ -190,7 +202,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             mic = MicListener(
                 context = ctx(),
                 onSegment = { samples, _ -> handleSegment(samples) },
-                onPartial = { samples -> handlePartial(samples) },
+                onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
                 onPartialLevel = { _level.value = it },
             ).also {
                 it.start()
@@ -236,7 +248,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Streaming: decode the growing buffer, show/refresh a provisional caption.
      *  Translation follows dynamically with throttling (only when text actually changed). */
-    private fun handlePartial(samples: FloatArray) {
+    private fun handlePartial(samples: FloatArray, partialEpoch: Long) {
         viewModelScope.launch(Dispatchers.Default) {
             val srcLang = TranslateConfig.sourceLang(ctx())
             val (text, lang) = try {
@@ -245,16 +257,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             if (text.isBlank()) return@launch
-            // replace the current provisional caption (same growing utterance)
-            val provisionalId = PROVISIONAL_ID
-            val existing = _captions.value.firstOrNull { it.id == provisionalId }
-            val prevText = existing?.source ?: ""
-            val cap = if (existing != null) {
-                existing.copy(source = text, langTag = lang, target = "", pending = true)
-            } else {
-                Caption(id = provisionalId, source = text, langTag = lang)
+            // STALE-PARTIAL GUARD: a final (or newer utterance) landed while this
+            // partial was decoding -> drop it instead of overwriting newer content
+            if (partialEpoch != partialCounter.get()) return@launch
+            var prevText = ""
+            var cap: Caption
+            captionsMutex.withLock {
+                val provisionalId = PROVISIONAL_ID
+                val existing = _captions.value.firstOrNull { it.id == provisionalId }
+                prevText = existing?.source ?: ""
+                cap = if (existing != null) {
+                    existing.copy(source = text, langTag = lang, target = "", pending = true)
+                } else {
+                    Caption(id = provisionalId, source = text, langTag = lang)
+                }
+                _captions.value = listOf(cap) + _captions.value.filter { it.id != provisionalId }
             }
-            _captions.value = listOf(cap) + _captions.value.filter { it.id != provisionalId }
             val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
                 android.provider.Settings.canDrawOverlays(ctx())
             if (overlayOk) {
@@ -263,7 +281,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 com.samge.bitrans.listen.ListenService.updateCaption(ctx(), text, "")
             }
             // translate partials too — but only when the text meaningfully changed
-            if (text != prevText) translateCaption(cap, isPartial = true)
+            if (text != prevText) translateCaption(cap!!, isPartial = true)
         }
     }
 
@@ -278,9 +296,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             if (text.isBlank()) return@launch
-            _captions.value = _captions.value.filter { it.id != PROVISIONAL_ID }
-            val cap = Caption(source = text, langTag = lang)
-            _captions.value = listOf(cap) + _captions.value.take(199)
+            // invalidate any in-flight partial decodes (they are stale now)
+            partialCounter.incrementAndGet()
+            val cap = Caption(id = newCaptionId(), source = text, langTag = lang)
+            captionsMutex.withLock {
+                _captions.value = listOf(cap) + _captions.value
+                    .filter { it.id != PROVISIONAL_ID }
+                    .take(199)
+            }
             val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
                 android.provider.Settings.canDrawOverlays(ctx())
             if (overlayOk) {
@@ -295,10 +318,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun translateCaption(cap: Caption, isPartial: Boolean = false) {
         // master switch: some users only want to see the original text
         if (!TranslateConfig.translationEnabled(ctx())) {
-            val updatedOff = _captions.value.map {
-                if (it.id == cap.id) it.copy(target = "", pending = false) else it
+            viewModelScope.launch(Dispatchers.Default) {
+                captionsMutex.withLock {
+                    _captions.value = _captions.value.map {
+                        if (it.id == cap.id) it.copy(target = "", pending = false) else it
+                    }
+                }
             }
-            _captions.value = updatedOff
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -311,13 +337,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 (effectiveSource == "zh" && targetCode == "yue")
             val result = if (skip) Result.success(cap.source) else engine.translate(cap.source, effectiveSource, targetCode)
             val translated = result.getOrDefault("")
-            val updated = _captions.value.map {
-                // partial results update the provisional slot; finals match by real id
-                if ((isPartial && it.id == PROVISIONAL_ID) || it.id == cap.id) {
-                    it.copy(target = translated, pending = false)
-                } else it
+            captionsMutex.withLock {
+                // STALE-WRITE GUARD: for partials, the provisional slot may already
+                // hold a DIFFERENT utterance (a final landed meanwhile) — only
+                // write back if the slot still shows this partial's source text.
+                val updated = _captions.value.map {
+                    val slotMatches = when {
+                        isPartial && cap.id == PROVISIONAL_ID ->
+                            it.id == PROVISIONAL_ID && it.source == cap.source
+                        else -> it.id == cap.id
+                    }
+                    if (slotMatches) it.copy(target = translated, pending = false) else it
+                }
+                _captions.value = updated
             }
-            _captions.value = updated
             val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
                 android.provider.Settings.canDrawOverlays(ctx())
             // push to global overlay if enabled and permitted
@@ -357,8 +390,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** E2E probe without mic: inject sentences as if ASR produced them (5 quick taps on start). */
     fun injectTestUtterances() {
         val probes = listOf(
-            Caption(source = "今天天气不错，我们去公园散步吧。", langTag = "zh"),
-            Caption(source = "The tribal chieftain called for the boy.", langTag = "en"),
+            Caption(id = newCaptionId(), source = "今天天气不错，我们去公园散步吧。", langTag = "zh"),
+            Caption(id = newCaptionId(), source = "The tribal chieftain called for the boy.", langTag = "en"),
         )
         _status.value = "已注入测试句(不经过ASR)"
         probes.forEach { cap ->
@@ -367,10 +400,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Mirror the main transcript (finals only, newest last) into the overlay. */
+    /** Mirror the main transcript (incl. in-flight partial, newest last) into the overlay. */
     private fun syncOverlay() {
         val pairs = _captions.value
-            .filter { it.id != PROVISIONAL_ID }
             .reversed()
             .map { it.source to it.target }
         com.samge.bitrans.overlay.OverlayService.sync(pairs)
@@ -502,7 +534,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         mic?.stop()
         tts?.shutdown()
-        AsrEngine.shutdown()
+        // NOTE: do NOT AsrEngine.shutdown() here — on configuration change
+        // (rotation) the ViewModel is destroyed and recreated; releasing the
+        // native recognizer under an in-flight decode crashes natively, and
+        // the model would need a full reload anyway. The engine is a process
+        // singleton and is reclaimed with the process.
         super.onCleared()
     }
 }

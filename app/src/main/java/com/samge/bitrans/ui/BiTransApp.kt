@@ -755,7 +755,10 @@ private fun HistoryPane(vm: MainViewModel) {
     var openSession by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
 
     if (openSession != null) {
-        val items by vm.itemsOf(openSession!!.id).collectAsState(initial = emptyList())
+        val session = openSession!!
+        val items by vm.itemsOf(session.id).collectAsState(initial = emptyList())
+        var renameDialog by remember { mutableStateOf(false) }
+        var renameText by remember(session.id) { mutableStateOf(session.title) }
         Column(Modifier.fillMaxSize()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -765,15 +768,35 @@ private fun HistoryPane(vm: MainViewModel) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(openSession!!.title, fontSize = 15.sp, fontWeight = FontWeight(600))
+                    Text(session.title, fontSize = 15.sp, fontWeight = FontWeight(600))
                     Text("${items.size} 段", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                IconButton(onClick = {
-                    val s = openSession!!
-                    vm.renameSession(s.id, "重命名-${s.title}")
-                }) {
-                    Icon(androidx.compose.material.icons.Icons.Default.Settings, contentDescription = "重命名")
+                IconButton(onClick = { renameDialog = true }) {
+                    Icon(Icons.Default.Settings, contentDescription = "重命名")
                 }
+            }
+            if (renameDialog) {
+                AlertDialog(
+                    onDismissRequest = { renameDialog = false },
+                    title = { Text("重命名", fontSize = 15.sp) },
+                    text = {
+                        OutlinedTextField(
+                            value = renameText,
+                            onValueChange = { renameText = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            vm.renameSession(session.id, renameText)
+                            renameDialog = false
+                        }) { Text("确定") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { renameDialog = false }) { Text("取消") }
+                    },
+                )
             }
             LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                 items(items, key = { it.id }) { item ->

@@ -24,6 +24,8 @@ object AsrEngine {
     @Volatile private var vad: Vad? = null
     @Volatile private var currentLangKey: String = "auto"
     private val lock = Any()
+    /** serializes native decode calls (partial/final coroutines race otherwise) */
+    private val decodeLock = Any()
 
     fun ready(ctx: Context): Boolean = ModelStore.asrReady(ctx)
 
@@ -31,18 +33,24 @@ object AsrEngine {
      * Decode one utterance (float samples 16k mono, range [-1,1]).
      * langHint: "auto" (SenseVoice detects) or a fixed code (zh/en/ja/ko/yue).
      * Returns (text, langTag).
+     *
+     * THREAD-SAFETY: the native OfflineRecognizer is NOT safe for concurrent
+     * decode calls (partial + final decode race from different coroutines).
+     * All decodes are serialized on this monitor.
      */
     fun decode(ctx: Context, samples: FloatArray, langHint: String = "auto"): Pair<String, String> {
         val rec = getRecognizer(ctx, langHint)
-        val stream = rec.createStream()
-        try {
-            stream.acceptWaveform(samples, 16000)
-            rec.decode(stream)
-            val res = rec.getResult(stream)
-            val lang = res.lang.replace("<|", "").replace("|>", "")
-            return Pair(res.text.trim(), lang)
-        } finally {
-            stream.release()
+        synchronized(decodeLock) {
+            val stream = rec.createStream()
+            try {
+                stream.acceptWaveform(samples, 16000)
+                rec.decode(stream)
+                val res = rec.getResult(stream)
+                val lang = res.lang.replace("<|", "").replace("|>", "")
+                return Pair(res.text.trim(), lang)
+            } finally {
+                stream.release()
+            }
         }
     }
 
@@ -55,7 +63,6 @@ object AsrEngine {
         recognizer?.let { if (currentLangKey == key) return it }
         synchronized(lock) {
             recognizer?.let { if (currentLangKey == key) return it }
-            recognizer?.release()
             val dir = ModelStore.asrModelDir(ctx)
             val config = OfflineRecognizerConfig(
                 featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
@@ -72,8 +79,12 @@ object AsrEngine {
                 ),
             )
             val r = OfflineRecognizer(assetManager = null, config = config)
+            // publish NEW instance BEFORE releasing the old one: an in-flight
+            // decode may still hold a reference, and releasing under it crashes natively.
+            val old = recognizer
             recognizer = r
             currentLangKey = key
+            old?.release()
             Log.i(TAG, "recognizer built for lang=$key")
             return r
         }

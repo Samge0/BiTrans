@@ -63,6 +63,12 @@ class ListenService : Service() {
                 ctx.startService(Intent(ctx, ListenService::class.java).putExtra(EXTRA_STOP, true))
             } catch (_: Exception) {
             }
+            // belt & suspenders: remove the caption notification even if the
+            // service was never started (e.g. process restarted)
+            try {
+                ctx.getSystemService(NotificationManager::class.java).cancel(NOTIF_ID)
+            } catch (_: Exception) {
+            }
         }
 
         private fun buildNotification(ctx: Context, text: String): Notification {

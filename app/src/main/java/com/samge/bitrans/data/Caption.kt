@@ -2,6 +2,8 @@ package com.samge.bitrans.data
 
 /**
  * One caption entry shown in the transcript list: source text + translation.
+ * NOTE: always pass an explicit unique id (MainViewModel.newCaptionId()) —
+ * the default here is only a fallback, NOT collision-safe for LazyColumn keys.
  */
 data class Caption(
     val id: Long = System.currentTimeMillis(),

@@ -67,7 +67,11 @@ class LibreTranslateEngine(
 
     override suspend fun translate(text: String, from: String, to: String): Result<String> {
         return try {
-            val url = java.net.URI(endpoint).resolve("/translate").toURL()
+            // join paths safely: URI.resolve("/translate") would REPLACE any path the
+            // user entered (e.g. https://host/lt -> https://host/translate), breaking
+            // reverse-proxied instances.
+            val base = endpoint.trim().trimEnd('/')
+            val url = java.net.URI(base + "/translate").toURL()
             val conn = url.openConnection() as java.net.HttpURLConnection
             try {
                 conn.requestMethod = "POST"
@@ -157,9 +161,43 @@ class LlmEngine(
                     }
                 }.toString()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-                val code = conn.responseCode
-                val resp = if (code in 200..299) conn.inputStream.bufferedReader().readText()
+                var code = conn.responseCode
+                var resp = if (code in 200..299) conn.inputStream.bufferedReader().readText()
                 else conn.errorStream?.bufferedReader()?.readText() ?: ""
+                // Some strict OpenAI-compatible servers reject unknown fields (400).
+                // Retry once with a minimal body (no no-think extras) before failing.
+                if (code == 400 && noThinkMode != "none") {
+                    runCatching {
+                        val minimal = org.json.JSONObject().apply {
+                            put("model", model)
+                            put("messages", org.json.JSONArray().apply {
+                                put(org.json.JSONObject().apply {
+                                    put("role", "system")
+                                    put("content", "You are a professional subtitle translator. Output only the translation.")
+                                })
+                                put(org.json.JSONObject().apply {
+                                    put("role", "user")
+                                    put("content", prompt)
+                                })
+                            })
+                            put("temperature", 0.1)
+                            put("max_tokens", 256)
+                        }
+                        val retry = (url.openConnection() as java.net.HttpURLConnection).apply {
+                            requestMethod = "POST"
+                            doOutput = true
+                            connectTimeout = 8000
+                            readTimeout = 30000
+                            setRequestProperty("Content-Type", "application/json")
+                            if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
+                        }
+                        retry.outputStream.use { it.write(minimal.toString().toByteArray(Charsets.UTF_8)) }
+                        code = retry.responseCode
+                        resp = if (code in 200..299) retry.inputStream.bufferedReader().readText()
+                        else retry.errorStream?.bufferedReader()?.readText() ?: ""
+                        retry.disconnect()
+                    }
+                }
                 val content = extractChatContent(resp)
                 if (code in 200..299 && content != null) Result.success(content.trim())
                 else Result.failure(java.io.IOException("LLM HTTP $code $resp"))
