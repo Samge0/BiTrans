@@ -11,13 +11,15 @@ import com.k2fsa.sherpa.onnx.Vad
 /**
  * Continuous microphone capture at 16kHz mono PCM16.
  *
- * Streaming strategy (validated on desktop with the same model):
- *  - while speech energy is present, a growing "echo" buffer is decoded every
- *    ~1.2s as a PARTIAL result (fast appearing text, refined over time);
- *  - when silero VAD closes a segment, its samples are decoded as the
- *    AUTHORITATIVE final (replaces the partial);
- *  - a hard cap (MAX_PARTIAL_SEC) force-commits endless speech (multi-speaker
- *    rooms, background noise) so translation keeps flowing and nothing is lost.
+ * Single authoritative timeline (fixes "later speech swallows earlier captions"):
+ *  - `totalSamples`    : global sample clock (== silero's clock, we feed it everything)
+ *  - `committedSamples`: everything before this offset has been emitted as a FINAL
+ *  - `audioTail`       : uncommitted recent audio (ring, 30s) used for PARTIAL decodes
+ *
+ * Segments closed by silero are authoritative finals; any overlap with already
+ * committed audio is trimmed, so re-opened/late segments never duplicate or
+ * swallow content. Force-commit (endless speech) advances the commit point
+ * WITHOUT resetting the VAD, so silero's own follow-up segments stay usable.
  */
 class MicListener(
     private val context: android.content.Context,
@@ -28,11 +30,12 @@ class MicListener(
     private val TAG = "MicListener"
     private val SAMPLE_RATE = 16000
 
-    private val RMS_ON = 0.010f     // start-of-speech gate
-    private val RMS_OFF = 0.005f    // hysteresis floor (with VAD agreement)
-    private val MIN_PARTIAL_SEC = 1.0f
+    private val RMS_ACTIVE = 0.006f    // decode partials only when above this
+    private val MIN_TAIL_SEC = 1.0f    // first partial threshold
     private val PARTIAL_EVERY_MS = 1200L
-    private val MAX_PARTIAL_SEC = 8.0f
+    private val MAX_TAIL_SEC = 8.0f    // force-commit endless speech
+    private val MIN_FINAL_SEC = 0.35f  // discard tiny finals (noise)
+    private val TAIL_LIMIT = SAMPLE_RATE * 30
 
     @Volatile private var running = false
     private var thread: Thread? = null
@@ -56,14 +59,54 @@ class MicListener(
                 return@Thread
             }
             record.startRecording()
-            Log.i(TAG, "streaming recorder started")
+            Log.i(TAG, "timeline recorder started")
 
             val pcmBuf = ShortArray(window)
             val floatWin = FloatArray(window)
-            val echo = ArrayList<Float>(16000 * 12)
-            var inSpeech = false
+            val tail = ArrayDeque<Float>(SAMPLE_RATE * 10)
+            var totalSamples = 0L       // global clock
+            var committed = 0L          // commit point (samples)
             var lastPartialAt = 0L
+            // front-stability tracking (silero queues a segment while it is still
+            // GROWING; popping early truncates it -> the original swallow bug)
+            var frontLenPrev = -1
+            var frontStableRounds = 0
 
+            fun tailStart(): Long = totalSamples - tail.size   // tail covers [tailStart, totalSamples)
+
+            fun dropCommitted() {
+                val over = (committed - tailStart()).toInt()
+                if (over > 0) repeat(over.coerceAtMost(tail.size)) { tail.removeFirst() }
+            }
+
+            fun tryDrainFinal(): Boolean {
+                if (vad.empty()) return false
+                val cur = vad.front().samples.size
+                if (cur != frontLenPrev) {
+                    frontLenPrev = cur
+                    frontStableRounds = 0
+                    return false // still growing
+                }
+                frontStableRounds++
+                if (frontStableRounds < 8) return false
+                if (vad.isSpeechDetected()) return false // speech may continue
+                // stable AND speech over: safe to take the authoritative final
+                val seg: SpeechSegment = vad.front()
+                vad.pop()
+                frontLenPrev = -1
+                frontStableRounds = 0
+                val segEnd = seg.start + seg.samples.size
+                val overlap = (committed - seg.start).toInt()
+                if (overlap < seg.samples.size) {
+                    val fresh = if (overlap > 0) seg.samples.copyOfRange(overlap, seg.samples.size) else seg.samples
+                    if (fresh.size >= (MIN_FINAL_SEC * SAMPLE_RATE).toInt()) {
+                        onSegment(fresh, seg.start / SAMPLE_RATE.toFloat())
+                    }
+                }
+                if (segEnd > committed) committed = segEnd.toLong()
+                dropCommitted()
+                return true
+            }
 
             while (running) {
                 val n = record.read(pcmBuf, 0, window)
@@ -73,58 +116,46 @@ class MicListener(
                     val v = pcmBuf[i] / 32768.0f
                     floatWin[i] = v
                     sum += (v.toDouble() * v.toDouble())
+                    tail.addLast(v)
                 }
                 val rms = kotlin.math.sqrt(sum / n).toFloat()
                 onPartialLevel(rms)
+                totalSamples += n
+                while (tail.size > TAIL_LIMIT) tail.removeFirst()
 
                 vad.acceptWaveform(floatWin.copyOf(n))
+                tryDrainFinal()
 
-                // finalized segment from VAD is authoritative
-                if (!vad.empty()) {
-                    val seg: SpeechSegment = vad.front()
-                    vad.pop()
-                    if (seg.samples.size >= SAMPLE_RATE / 2) {
-                        onSegment(seg.samples, seg.start / SAMPLE_RATE.toFloat())
-                    } else {
-                        echo.clear()
+                val tailSec = tail.size / SAMPLE_RATE.toFloat()
+
+                // ---- force-commit endless speech (multi-speaker / nonstop rooms) ----
+                // No vad.reset(): silero keeps tracking; any later segment is overlap-trimmed above.
+                if (tailSec >= MAX_TAIL_SEC) {
+                    val arr = FloatArray(tail.size)
+                    var k = 0
+                    for (v in tail) arr[k++] = v
+                    if (arr.size >= (MIN_FINAL_SEC * SAMPLE_RATE).toInt()) {
+                        onSegment(arr, tailStart() / SAMPLE_RATE.toFloat())
                     }
-                    inSpeech = false
+                    committed = totalSamples
+                    tail.clear()
+                    lastPartialAt = System.currentTimeMillis()
                     continue
                 }
 
-                val speechLikely = vad.isSpeechDetected()
-                if (!inSpeech && (rms > RMS_ON || speechLikely)) {
-                    inSpeech = true
-                    lastPartialAt = System.currentTimeMillis()
-                    echo.clear()
-                } else if (inSpeech && rms < RMS_OFF && !speechLikely) {
-                    // brief dip: only close if VAD also agrees; else keep buffering
-                    inSpeech = false
-                    if (echo.size >= SAMPLE_RATE / 2) {
-                        onPartial(echo.toFloatArray())
-                    }
-                    echo.clear()
-                }
-
-                if (inSpeech) {
-                    for (i in 0 until n) echo.add(floatWin[i])
-                    val durSec = echo.size / SAMPLE_RATE.toFloat()
-                    val now = System.currentTimeMillis()
-                    if (echo.size >= SAMPLE_RATE && durSec >= MAX_PARTIAL_SEC) {
-                        // force-commit endless speech (multi-speaker rooms / noise)
-                        onSegment(echo.toFloatArray(), 0f)
-                        echo.clear()
-                        inSpeech = false
-                        try { vad.reset() } catch (_: Exception) {}
-                    } else if (durSec >= MIN_PARTIAL_SEC && now - lastPartialAt >= PARTIAL_EVERY_MS) {
-                        onPartial(echo.toFloatArray())
-                        lastPartialAt = now
-                    }
+                // ---- streaming partial over the uncommitted tail ----
+                val now = System.currentTimeMillis()
+                if (tailSec >= MIN_TAIL_SEC && now - lastPartialAt >= PARTIAL_EVERY_MS && rms > RMS_ACTIVE) {
+                    val arr = FloatArray(tail.size)
+                    var k = 0
+                    for (v in tail) arr[k++] = v
+                    onPartial(arr)
+                    lastPartialAt = now
                 }
             }
             try { record.stop() } catch (_: Exception) {}
             record.release()
-            Log.i(TAG, "streaming recorder stopped")
+            Log.i(TAG, "timeline recorder stopped")
         }, "mic-stream").apply {
             isDaemon = true
             start()

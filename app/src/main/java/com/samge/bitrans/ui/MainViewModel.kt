@@ -180,7 +180,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             if (text.isBlank()) return@launch
-            // authoritative final: replace the provisional caption with a real one
+            // final arrives: retire the provisional slot ONLY if it was for earlier
+            // content; the provisional already carries the newest utterance (partial
+            // timeline restarts right after commit), so drop it — the final replaces it.
             _captions.value = _captions.value.filter { it.id != PROVISIONAL_ID }
             val cap = Caption(source = text, langTag = lang)
             _captions.value = listOf(cap) + _captions.value.take(199)
