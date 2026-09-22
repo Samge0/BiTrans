@@ -12,6 +12,7 @@ dependencyResolutionManagement {
         maven { url = uri("https://maven.aliyun.com/nexus/content/groups/public/") }
         google()
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 rootProject.name = "BiTrans"
