@@ -62,6 +62,10 @@ object TranslateConfig {
     fun ttsEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("tts", true)
     fun setTtsEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("tts", v).apply()
 
+    /** master switch: whether to translate at all (some users only want originals) */
+    fun translationEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("translate_on", true)
+    fun setTranslationEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("translate_on", v).apply()
+
     fun currentEngine(ctx: Context): TranslateEngine = when (engineKind(ctx)) {
         "libre" -> LibreTranslateEngine(ltEndpoint(ctx), ltApiKey(ctx))
         "llm" -> LlmEngine(llmBaseUrl(ctx), llmModel(ctx), llmApiKey(ctx), llmNoThinkMode(ctx))

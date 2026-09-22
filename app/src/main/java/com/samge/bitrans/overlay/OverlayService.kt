@@ -22,9 +22,10 @@ import com.samge.bitrans.translate.TranslateConfig
 import kotlin.math.abs
 
 /**
- * Global semi-transparent caption overlay (Apple-style: dark-tile surface, lg
- * radius, hairline dividers, no shadows). Shows the last N caption pairs
- * (N = user setting, 1..10). Draggable; tap toggles collapse.
+ * Global semi-transparent caption overlay. Shows the last N caption pairs
+ * (N = user setting, 1..10) — EXACTLY the same pairs as the main transcript
+ * (source + final/partial translation), so multi-line overlay mirrors the app.
+ * Draggable; tap toggles collapse.
  */
 class OverlayService : Service() {
 
@@ -34,6 +35,11 @@ class OverlayService : Service() {
     private val main = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -45,7 +51,7 @@ class OverlayService : Service() {
             return START_NOT_STICKY
         }
         if (box == null) createOverlay()
-        main.post { rebuild(); applyStyle() }
+        redraw()
         return START_STICKY
     }
 
@@ -124,8 +130,15 @@ class OverlayService : Service() {
             }
         } ?: run { container.minimumWidth = widthPx }
         container.background = GradientDrawable().apply {
-            cornerRadius = dp(18).toFloat() // rounded.lg (Apple tokens)
-            setColor(Color.argb(alphaPct(), 0x27, 0x27, 0x29)) // DarkTile #272729
+            cornerRadius = dp(18).toFloat()
+            setColor(Color.argb(alphaPct(), 0x27, 0x27, 0x29))
+        }
+    }
+
+    private fun redraw() {
+        main.post {
+            rebuild()
+            applyStyle()
         }
     }
 
@@ -135,7 +148,8 @@ class OverlayService : Service() {
         val maxLines = TranslateConfig.overlayLines(this).coerceIn(1, 10)
         rowsView.removeAllViews()
         val snapshot = synchronized(history) { history.toList().takeLast(maxLines) }
-        snapshot.forEachIndexed { idx, (src, tgt) ->
+        snapshot.forEachIndexed { idx, pair ->
+            val (src, tgt) = pair
             val srcView = TextView(this).apply {
                 text = src
                 setTextColor(0xFFCCCCCC.toInt())
@@ -163,11 +177,6 @@ class OverlayService : Service() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    override fun onCreate() {
-        super.onCreate()
-        instance = this
-    }
-
     override fun onDestroy() {
         box?.let { runCatching { wm?.removeView(it) } }
         box = null
@@ -180,11 +189,14 @@ class OverlayService : Service() {
     companion object {
         private const val ACTION_STOP = "com.samge.bitrans.overlay.STOP"
         @Volatile private var serviceRunning = false
+        @Volatile private var instance: OverlayService? = null
         private val ui = Handler(Looper.getMainLooper())
 
-        /** caption history shared with the service (guarded by itself) */
-        private val history = ArrayDeque<Pair<String, String>>()
-        @Volatile private var instance: OverlayService? = null
+        /**
+         * Mirror of the main transcript: finalized (source, translation) pairs,
+         * newest last. Maintained by MainViewModel.
+         */
+        private val history = ArrayList<Pair<String, String>>()
 
         fun running(): Boolean = serviceRunning
 
@@ -203,32 +215,15 @@ class OverlayService : Service() {
             synchronized(history) { history.clear() }
         }
 
-        /**
-         * Push a caption pair. Provisional (still-growing utterance) updates merge
-         * into the newest line; completed captions append and trim to N lines.
-         */
-        fun push(ctx: Context, source: String, target: String, provisional: Boolean) {
+        /** Replace the whole history from the app's caption list (kept in sync by VM). */
+        fun sync(list: List<Pair<String, String>>) {
+            synchronized(history) {
+                history.clear()
+                history.addAll(list)
+            }
             ui.post {
-                val maxLines = runCatching { TranslateConfig.overlayLines(ctx) }
-                    .getOrDefault(1).coerceIn(1, 10)
-                synchronized(history) {
-                    val last = history.lastOrNull()
-                    if (provisional && last != null && last.first == source) {
-                        history.removeLast()
-                        history.addLast(source to target)
-                    } else if (provisional) {
-                        // a newer utterance started mid-provisional: replace stale provisional
-                        history.removeLastOrNull()
-                        history.addLast(source to target)
-                    } else {
-                        history.addLast(source to target)
-                        while (history.size > maxLines) history.removeFirst()
-                    }
-                }
-                instance?.main?.post {
-                    instance?.rebuild()
-                    instance?.applyStyle()
-                }
+                instance?.rebuild()
+                instance?.applyStyle()
             }
         }
     }

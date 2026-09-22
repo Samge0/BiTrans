@@ -14,9 +14,13 @@ import com.samge.bitrans.translate.TargetLang
 import com.samge.bitrans.translate.TranslateConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.Log
 import java.util.Locale
 
 sealed interface UiState {
@@ -41,6 +45,7 @@ data class AppSettings(
     val overlayAlpha: Int,
     val overlayLines: Int,
     val autoScroll: Boolean,
+    val translateOn: Boolean,
 ) {
     /** JSON for export — deliberately excludes apiKey (security) */
     fun toJson(): String = org.json.JSONObject().apply {
@@ -60,6 +65,7 @@ data class AppSettings(
         put("overlayAlpha", overlayAlpha)
         put("overlayLines", overlayLines)
         put("autoScroll", autoScroll)
+        put("translateOn", translateOn)
     }.toString(2)
 
     companion object {
@@ -82,6 +88,7 @@ data class AppSettings(
                     overlayAlpha = o.optInt("overlayAlpha", 60),
                     overlayLines = o.optInt("overlayLines", 1),
                     autoScroll = o.optBoolean("autoScroll", true),
+                    translateOn = o.optBoolean("translateOn", true),
                 )
             } catch (_: Exception) {
                 null
@@ -112,6 +119,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var mic: MicListener? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var sessionStartAt = 0L
 
     companion object {
         /** reserved id for the in-flight streaming (partial) caption */
@@ -173,9 +181,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _listening.value = false
             _status.value = ""
             com.samge.bitrans.listen.ListenService.stop(ctx())
+            saveSessionToDb()
         } else {
             // keep process alive while user switches to Hilokal
             try { com.samge.bitrans.listen.ListenService.start(ctx()) } catch (_: Exception) {}
+            sessionStartAt = System.currentTimeMillis()
+            com.samge.bitrans.overlay.OverlayService.clear()
             mic = MicListener(
                 context = ctx(),
                 onSegment = { samples, _ -> handleSegment(samples) },
@@ -186,6 +197,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 _listening.value = true
                 // pre-build the recognizer for the configured source language
                 AsrEngine.warmUp(ctx(), TranslateConfig.sourceLang(ctx()))
+            }
+        }
+    }
+
+    /** Persist the finished session (captions incl. timestamps) to Room. */
+    private fun saveSessionToDb() {
+        val caps = _captions.value
+        if (caps.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+                val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                val start = sessionStartAt.takeIf { it > 0 } ?: caps.last().ts
+                val sid = dao.insertSession(
+                    com.samge.bitrans.data.Session(
+                        title = fmt.format(java.util.Date(start)),
+                        startedAt = start,
+                        endedAt = System.currentTimeMillis(),
+                    )
+                )
+                // captions list is newest-first; persist oldest-first
+                dao.insertItems(caps.reversed().map { c ->
+                    com.samge.bitrans.data.CaptionItem(
+                        sessionId = sid,
+                        ts = c.ts,
+                        source = c.source,
+                        langTag = c.langTag,
+                        target = c.target,
+                    )
+                })
+                withContext(Dispatchers.Main) { _status.value = "记录已保存到历史" }
+            } catch (t: Throwable) {
+                Log.w("BiTrans", "saveSession failed", t)
             }
         }
     }
@@ -214,7 +258,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
                 android.provider.Settings.canDrawOverlays(ctx())
             if (overlayOk) {
-                com.samge.bitrans.overlay.OverlayService.push(ctx(), text, "", provisional = true)
+                syncOverlay()
             } else if (_listening.value) {
                 com.samge.bitrans.listen.ListenService.updateCaption(ctx(), text, "")
             }
@@ -240,7 +284,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val overlayOk = TranslateConfig.overlayEnabled(ctx()) &&
                 android.provider.Settings.canDrawOverlays(ctx())
             if (overlayOk) {
-                com.samge.bitrans.overlay.OverlayService.push(ctx(), text, "", provisional = false)
+                syncOverlay()
             } else if (_listening.value) {
                 com.samge.bitrans.listen.ListenService.updateCaption(ctx(), text, "")
             }
@@ -249,6 +293,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun translateCaption(cap: Caption, isPartial: Boolean = false) {
+        // master switch: some users only want to see the original text
+        if (!TranslateConfig.translationEnabled(ctx())) {
+            val updatedOff = _captions.value.map {
+                if (it.id == cap.id) it.copy(target = "", pending = false) else it
+            }
+            _captions.value = updatedOff
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             val targetCode = TranslateConfig.targetLang(ctx())
             val sourceCode = TranslateConfig.sourceLang(ctx())
@@ -270,7 +322,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 android.provider.Settings.canDrawOverlays(ctx())
             // push to global overlay if enabled and permitted
             if (overlayOk) {
-                com.samge.bitrans.overlay.OverlayService.push(ctx(), cap.source, translated, provisional = isPartial)
+                syncOverlay()
             }
             // notification-shade captions: fallback when overlay is blocked,
             // or when user runs backgrounded without the overlay
@@ -315,10 +367,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Mirror the main transcript (finals only, newest last) into the overlay. */
+    private fun syncOverlay() {
+        val pairs = _captions.value
+            .filter { it.id != PROVISIONAL_ID }
+            .reversed()
+            .map { it.source to it.target }
+        com.samge.bitrans.overlay.OverlayService.sync(pairs)
+    }
+
     /** UI toggle: auto-follow newest caption vs manual browsing (persisted immediately) */
     fun setAutoScroll(v: Boolean) {
         TranslateConfig.setAutoScroll(ctx(), v)
         _settings.value = loadSettings()
+    }
+
+    /** Save settings from the top-right action, then self-test the engine. */
+    fun saveAndTest(s: AppSettings) {
+        updateSettings(s)
+        runEngineSelfTest()
+    }
+
+    // ---------------- history (Room) ----------------
+
+    val sessions: StateFlow<List<com.samge.bitrans.data.Session>> =
+        com.samge.bitrans.data.AppDatabase.get(getApplication()).captionDao()
+            .sessionsFlow()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun itemsOf(sessionId: Long): Flow<List<com.samge.bitrans.data.CaptionItem>> =
+        com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao().itemsFlow(sessionId)
+
+    fun renameSession(id: Long, newTitle: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+                .renameSession(id, newTitle.trim().ifBlank { "未命名" })
+        }
+    }
+
+    fun deleteSession(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+            dao.deleteItemsOf(id)
+            dao.deleteSession(id)
+        }
     }
 
     fun clearCaptions() {
@@ -341,6 +433,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         TranslateConfig.setOverlayAlpha(ctx(), s.overlayAlpha)
         TranslateConfig.setOverlayLines(ctx(), s.overlayLines)
         TranslateConfig.setAutoScroll(ctx(), s.autoScroll)
+        TranslateConfig.setTranslationEnabled(ctx(), s.translateOn)
         _settings.value = loadSettings()
         // sync overlay lifecycle with the setting
         if (s.overlayOn) {
@@ -403,6 +496,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         overlayAlpha = TranslateConfig.overlayAlpha(ctx()),
         overlayLines = TranslateConfig.overlayLines(ctx()),
         autoScroll = TranslateConfig.autoScroll(ctx()),
+        translateOn = TranslateConfig.translationEnabled(ctx()),
     )
 
     override fun onCleared() {
