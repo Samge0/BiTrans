@@ -74,6 +74,13 @@ fun BiTransApp(vm: MainViewModel) {
     val settings by vm.settings.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
+    // live-edited settings snapshot kept current by SettingsPane (used on back = autosave)
+    var pendingEdits by remember { mutableStateOf<AppSettings?>(null) }
+
+    fun exitSettingsSavingEdits() {
+        vm.updateSettings(pendingEdits ?: settings)
+        showSettings = false
+    }
 
     val ctx = LocalContext.current
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
@@ -91,10 +98,7 @@ fun BiTransApp(vm: MainViewModel) {
     }
 
     androidx.activity.compose.BackHandler(enabled = showSettings || showHistory) {
-        if (showSettings) {
-            vm.updateSettings(settings)
-            showSettings = false
-        }
+        if (showSettings) exitSettingsSavingEdits()
         if (showHistory) showHistory = false
     }
 
@@ -116,10 +120,7 @@ fun BiTransApp(vm: MainViewModel) {
                 navigationIcon = {
                     if (showSettings || showHistory) {
                         IconButton(onClick = {
-                            if (showSettings) {
-                                vm.updateSettings(settings)
-                                showSettings = false
-                            }
+                            if (showSettings) exitSettingsSavingEdits()
                             if (showHistory) showHistory = false
                         }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -158,7 +159,10 @@ fun BiTransApp(vm: MainViewModel) {
                 is UiState.NeedsModels -> ModelDownloadPane(vm)
                 is UiState.Downloading -> DownloadingPane(s)
                 is UiState.Ready -> when {
-                    showSettings -> SettingsPane(vm, settings)
+                    showSettings -> SettingsPane(vm, settings) { edited ->
+                        // back/gesture exit hands us the LIVE edited state (not the persisted snapshot)
+                        pendingEdits = edited
+                    }
                     showHistory -> HistoryPane(vm)
                     else -> MainPane(
                         vm, captions, settings, status, level, listening,
@@ -497,7 +501,7 @@ private fun FlowChips(
 }
 
 @Composable
-private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
+private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSettings) -> Unit) {
     val ctx = LocalContext.current
     var engine by remember { mutableStateOf(cur.engineKind) }
     var target by remember { mutableStateOf(cur.target) }
@@ -523,6 +527,12 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
         overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
         overlayLines.toInt(), autoScroll, translateOn,
     )
+
+    // keep the parent's "pending edits" current so back/gesture-exit saves the
+    // LIVE values the user typed (not the previously persisted snapshot)
+    LaunchedEffect(engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, noThink, tts, translateOn, overlayOn, overlayW, overlayFont, overlayAlpha, overlayLines, autoScroll) {
+        onEdits(buildSettings())
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -607,8 +617,10 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings) {
                 Text("禁用思考（推理模型会拖慢翻译）", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = noThink == "quiet", onClick = { noThink = "quiet" },
+                        label = { Text("标准(默认)", fontSize = 11.sp) }, shape = PillShape)
                     FilterChip(selected = noThink == "all", onClick = { noThink = "all" },
-                        label = { Text("全部禁用(默认)", fontSize = 11.sp) }, shape = PillShape)
+                        label = { Text("全量字段", fontSize = 11.sp) }, shape = PillShape)
                     FilterChip(selected = noThink == "none", onClick = { noThink = "none" },
                         label = { Text("不禁用", fontSize = 11.sp) }, shape = PillShape)
                 }

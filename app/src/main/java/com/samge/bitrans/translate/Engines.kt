@@ -143,21 +143,18 @@ class LlmEngine(
                     put("max_tokens", 256)
                     put("stream", false)
                     if (noThinkMode != "none") {
-                        // Belt-and-suspenders "disable thinking" for the known LLM families.
-                        // Servers ignore fields they don't know; thinking models that read
-                        // any of these will skip their reasoning pass -> fast, no timeouts.
-                        //  - vLLM (Qwen3 / DeepSeek / GLM / Hunyuan … chat-template flag)
-                        if (noThinkMode == "all") {
+                        // "quiet" = vLLM-family only (safe default; OpenAI's strict
+                        // API 400s on unknown fields, so full arsenal is opt-in).
+                        if (noThinkMode == "all" || noThinkMode == "quiet") {
                             put("chat_template_kwargs", org.json.JSONObject().put("enable_thinking", false))
                         }
-                        //  - OpenAI o-series / GPT-5 thinking family
-                        put("reasoning_effort", "low")
-                        //  - OpenAI-compatible "extended thinking" (Anthropic-style relays)
-                        put("thinking", org.json.JSONObject().put("type", "disabled"))
-                        //  - Qwen/OpenRouter style
-                        put("reasoning", org.json.JSONObject().put("enabled", false))
-                        //  - generic hint honored by some gateways
-                        put("disable_thinking", true)
+                        if (noThinkMode == "all") {
+                            // belt-and-suspenders extras for lenient gateways
+                            put("reasoning_effort", "low")
+                            put("thinking", org.json.JSONObject().put("type", "disabled"))
+                            put("reasoning", org.json.JSONObject().put("enabled", false))
+                            put("disable_thinking", true)
+                        }
                     }
                 }.toString()
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }

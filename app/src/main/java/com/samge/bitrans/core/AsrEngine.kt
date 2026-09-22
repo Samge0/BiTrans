@@ -100,7 +100,11 @@ object AsrEngine {
             try { getRecognizer(ctx, langHint) } catch (t: Throwable) {
                 Log.e(TAG, "warmUp failed", t)
             }
-        }.start()
+        }.apply {
+            isDaemon = true
+            name = "asr-warmup"
+            start()
+        }
     }
 
     fun getVad(ctx: Context): Vad {

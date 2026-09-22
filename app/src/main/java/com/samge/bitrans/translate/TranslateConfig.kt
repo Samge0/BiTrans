@@ -38,7 +38,7 @@ object TranslateConfig {
     fun setLlmApiKey(ctx: Context, v: String) = prefs(ctx).edit().putString("llm_key", v).apply()
 
     /** which no-thinking payload keys to attach (user-selectable; default = all known) */
-    fun llmNoThinkMode(ctx: Context): String = prefs(ctx).getString("llm_nothink", "all") ?: "all"
+    fun llmNoThinkMode(ctx: Context): String = prefs(ctx).getString("llm_nothink", "quiet") ?: "quiet"
     fun setLlmNoThinkMode(ctx: Context, v: String) = prefs(ctx).edit().putString("llm_nothink", v).apply()
 
     // floating overlay prefs
