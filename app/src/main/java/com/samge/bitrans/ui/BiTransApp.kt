@@ -130,7 +130,11 @@ fun BiTransApp(vm: MainViewModel) {
                 actions = {
                     when {
                         showSettings -> {
-                            TextButton(onClick = { vm.saveAndTest(settings) }) {
+                            val ctxAct = LocalContext.current
+                            TextButton(onClick = {
+                                vm.saveAndTest(pendingEdits ?: settings)
+                                android.widget.Toast.makeText(ctxAct, "已保存并开始自测", android.widget.Toast.LENGTH_SHORT).show()
+                            }) {
                                 Text("保存", fontSize = 14.sp)
                             }
                         }

@@ -467,7 +467,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         TranslateConfig.setAutoScroll(ctx(), s.autoScroll)
         TranslateConfig.setTranslationEnabled(ctx(), s.translateOn)
         _settings.value = loadSettings()
-        // sync overlay lifecycle with the setting
+        // sync overlay lifecycle with the setting.
+        // NOTE: start() is unconditional when enabled — even for an ALREADY-RUNNING
+        // service this re-delivers onStartCommand, which re-applies style+rows.
+        // That makes Save apply overlay changes (width/font/alpha/lines) instantly.
         if (s.overlayOn) {
             com.samge.bitrans.overlay.OverlayService.start(ctx())
         } else {
