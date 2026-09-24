@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiTrans — 免费实时双语语音翻译 · Android</title>
+<meta name="description" content="开源技术栈实时同传 Android 客户端：silero VAD 断句 → SenseVoice 离线识别（中/英/日/韩/粤）→ 三引擎翻译 → 双语字幕，全程 0 元。">
+<style>
+:root{
+  --primary:#cc785c; --primary-active:#a9583e;
+  --ink:#141413; --body:#3d3d3a; --muted:#6c6a64; --muted-soft:#8e8b82;
+  --hairline:#e6dfd8; --hairline-soft:#ebe6df;
+  --canvas:#faf9f5; --surface-soft:#f5f0e8; --surface-card:#efe9de; --surface-strong:#e8e0d2;
+  --surface-dark:#181715; --surface-dark-elev:#252320; --on-dark:#faf9f5; --on-dark-soft:#a09d96;
+  --accent-teal:#5db8a6; --accent-amber:#e8a55a;
+  --serif:"Copernicus","Tiempos Headline","Source Han Serif SC","Noto Serif SC",Georgia,serif;
+  --sans:"StyreneB","Inter","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  --radius:14px; --radius-lg:20px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--canvas);color:var(--body);font-family:var(--sans);line-height:1.7;font-size:16px}
+::selection{background:var(--surface-strong);color:var(--ink)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+a{color:var(--primary);text-decoration:none}
+a:hover{text-decoration:underline}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2.2px;text-transform:uppercase;color:var(--primary);font-weight:600}
+h1,h2,h3{font-family:var(--serif);color:var(--ink);font-weight:400}
+h2{font-size:36px;line-height:1.15;letter-spacing:-0.5px}
+h3{font-size:22px;letter-spacing:-0.2px}
+
+/* ── nav ── */
+nav{position:sticky;top:0;z-index:50;background:rgba(250,249,245,.85);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--hairline-soft)}
+.nav-in{max-width:1080px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:22px}
+.brand{font-family:var(--serif);font-size:19px;color:var(--ink);font-weight:600}
+.brand span{color:var(--primary)}
+nav .links{margin-left:auto;display:flex;gap:22px;font-size:14px;color:var(--muted)}
+nav .links a{color:var(--muted)}
+nav .links a:hover{color:var(--ink);text-decoration:none}
+.nav-cta{background:var(--ink);color:var(--canvas)!important;padding:8px 18px;border-radius:999px;font-weight:500}
+.nav-cta:hover{background:#000;text-decoration:none}
+
+/* ── hero ── */
+.hero{padding:88px 0 64px;display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+.hero h1{font-size:56px;line-height:1.08;letter-spacing:-1.5px;margin:18px 0 22px}
+.hero h1 em{font-style:normal;color:var(--primary)}
+.hero .lede{font-size:18px;color:var(--body);max-width:32em}
+.hero-actions{display:flex;gap:14px;margin-top:32px;flex-wrap:wrap}
+.btn{display:inline-block;padding:13px 26px;border-radius:12px;font-weight:600;font-size:15px;transition:transform .15s, box-shadow .15s, background .15s}
+.btn:hover{text-decoration:none;transform:translateY(-1px)}
+.btn-primary{background:var(--primary);color:#fff;box-shadow:0 6px 18px rgba(204,120,92,.32)}
+.btn-primary:hover{background:var(--primary-active)}
+.btn-ghost{background:var(--surface-card);color:var(--ink);border:1px solid var(--hairline)}
+.btn-ghost:hover{background:var(--surface-strong)}
+.hero-facts{display:flex;gap:26px;margin-top:38px;flex-wrap:wrap}
+.fact b{display:block;font-family:var(--serif);font-size:26px;color:var(--ink);font-weight:600}
+.fact span{font-size:12.5px;color:var(--muted-soft)}
+
+/* ── live caption panel ── */
+.phone-panel{background:var(--surface-dark);border-radius:var(--radius-lg);padding:26px 26px 22px;box-shadow:0 24px 60px rgba(24,23,21,.22);position:relative;overflow:hidden}
+.phone-panel::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 90% 55% at 80% 0%,rgba(204,120,92,.16),transparent 60%);pointer-events:none}
+.pp-head{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:11.5px;color:var(--on-dark-soft);letter-spacing:1px;margin-bottom:18px}
+.rec-dot{width:8px;height:8px;border-radius:50%;background:var(--primary);display:inline-block;margin-right:7px;animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
+.pp-body{position:relative;min-height:190px;display:flex;align-items:center}
+.cap{opacity:0;transform:translateY(10px);transition:opacity .5s,transform .5s;position:absolute;top:0;left:0;right:0}
+.cap.show{opacity:1;transform:translateY(0)}
+.cap .lang-tag{font-family:var(--mono);font-size:10.5px;letter-spacing:1.6px;color:var(--accent-teal);text-transform:uppercase}
+.cap .src{color:var(--on-dark);font-size:17px;line-height:1.55;margin-top:6px}
+.cap .dst{color:var(--accent-amber);font-size:15.5px;line-height:1.6;margin-top:8px;padding-top:8px;border-top:1px dashed rgba(250,249,245,.14)}
+.cap-controls{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:11px;padding:4px 12px;border-radius:999px;border:1px solid rgba(250,249,245,.18);color:var(--on-dark-soft)}
+.chip.on{border-color:var(--primary);color:var(--primary)}
+.pp-foot{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--on-dark-soft);margin-top:18px;padding-top:14px;border-top:1px solid rgba(250,249,245,.1)}
+
+/* ── pipeline ── */
+section{padding:72px 0}
+.sec-head{max-width:640px;margin-bottom:44px}
+.sec-head p{color:var(--muted);margin-top:12px;font-size:16.5px}
+.pipeline{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:var(--surface-soft);border:1px solid var(--hairline-soft);border-radius:var(--radius-lg);overflow:hidden}
+.pl-node{padding:30px 26px;position:relative;border-right:1px solid var(--hairline-soft)}
+.pl-node:last-child{border-right:none}
+.pl-node .n{font-family:var(--mono);font-size:11px;color:var(--muted-soft);letter-spacing:1.5px}
+.pl-node h3{margin:10px 0 8px;font-size:19px}
+.pl-node p{font-size:14px;color:var(--muted);line-height:1.65}
+.pl-node .arrow{position:absolute;right:-11px;top:50%;transform:translateY(-50%);z-index:2;width:22px;height:22px;border-radius:50%;background:var(--canvas);border:1px solid var(--hairline);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)}
+
+/* ── feature cards ── */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:#fff;border:1px solid var(--hairline-soft);border-radius:var(--radius);padding:28px 26px;transition:transform .2s, box-shadow .2s}
+.card:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(24,23,21,.08)}
+.card .ico{width:40px;height:40px;border-radius:10px;background:var(--surface-soft);display:flex;align-items:center;justify-content:center;font-size:19px;margin-bottom:16px}
+.card h3{font-size:18px;margin-bottom:8px}
+.card p{font-size:14px;color:var(--muted)}
+.card code{font-family:var(--mono);font-size:12.5px;background:var(--surface-soft);padding:1px 7px;border-radius:6px;color:var(--ink)}
+
+/* ── bench table ── */
+.bench{border:1px solid var(--hairline-soft);border-radius:var(--radius-lg);overflow:hidden}
+.bench table{width:100%;border-collapse:collapse;font-size:14.5px}
+.bench th{font-family:var(--mono);font-size:11.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted-soft);text-align:left;padding:16px 24px;background:var(--surface-soft);border-bottom:1px solid var(--hairline-soft);font-weight:600}
+.bench td{padding:15px 24px;border-bottom:1px solid var(--hairline-soft);color:var(--body)}
+.bench tr:last-child td{border-bottom:none}
+.bench td:first-child{color:var(--ink);font-weight:600}
+.bench .num{font-family:var(--mono);font-size:13px;color:var(--primary);font-weight:600}
+.bench .ok{color:#3d8a5f;font-weight:600}
+.bench-note{font-size:13px;color:var(--muted-soft);margin-top:14px}
+.bench-note code{font-family:var(--mono);background:var(--surface-soft);padding:1px 7px;border-radius:6px}
+
+/* ── comparison strip ── */
+.alt{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.alt-card{border:1px dashed var(--hairline);border-radius:var(--radius);padding:22px 24px;background:transparent}
+.alt-card b{color:var(--ink);font-size:15px}
+.alt-card p{font-size:13.5px;color:var(--muted);margin-top:6px}
+
+/* ── final cta ── */
+.cta{background:var(--surface-dark);border-radius:24px;padding:64px 56px;position:relative;overflow:hidden}
+.cta::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 70% 90% at 15% 100%,rgba(204,120,92,.2),transparent 55%);pointer-events:none}
+.cta h2{color:var(--on-dark)}
+.cta p{color:var(--on-dark-soft);margin:14px 0 30px;max-width:36em}
+.cta .row{display:flex;gap:14px;flex-wrap:wrap}
+.btn-light{background:var(--on-dark);color:var(--ink)}
+.btn-light:hover{background:#fff}
+.btn-outline{border:1px solid rgba(250,249,245,.28);color:var(--on-dark)!important;background:transparent}
+.btn-outline:hover{border-color:var(--on-dark)}
+
+/* ── footer ── */
+footer{border-top:1px solid var(--hairline-soft);padding:34px 0 44px;margin-top:72px}
+footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;font-size:13.5px;color:var(--muted-soft)}
+footer a{color:var(--muted)}
+
+/* ── reveal ── */
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .6s,transform .6s}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.rec-dot{animation:none}}
+
+/* ── responsive ── */
+@media (max-width:920px){
+  .hero{grid-template-columns:1fr;gap:44px;padding-top:56px}
+  .hero h1{font-size:40px}
+  .pipeline{grid-template-columns:1fr 1fr}
+  .pl-node:nth-child(2) .arrow{display:none}
+  .pl-node{border-bottom:1px solid var(--hairline-soft)}
+  .pl-node:nth-child(3),.pl-node:nth-child(4){border-bottom:none}
+  .grid{grid-template-columns:1fr}
+  .alt{grid-template-columns:1fr}
+  nav .links a:not(.nav-cta){display:none}
+  .cta{padding:44px 28px}
+}
+@media (max-width:560px){
+  .pipeline{grid-template-columns:1fr}
+  .pl-node{border-right:none;border-bottom:1px solid var(--hairline-soft)}
+  .pl-node:last-child{border-bottom:none}
+  .pl-node .arrow{display:none}
+  .hero h1{font-size:34px}
+  .hero-facts{gap:18px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <div class="brand">Bi<span>Trans</span></div>
+    <div class="links">
+      <a href="#pipeline">工作链路</a>
+      <a href="#features">特性</a>
+      <a href="#bench">实测</a>
+      <a class="nav-cta" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub →</a>
+    </div>
+  </div>
+</nav>
+
+<header class="wrap hero">
+  <div>
+    <div class="eyebrow">Open-source · On-device · 0 元</div>
+    <h1>说外语，<br>出<em>双语字幕</em>。</h1>
+    <p class="lede">开源技术栈实现的实时语音翻译 Android 客户端，配合 Hilokal 等语言陪练 App 使用：麦克风持续监听 → 自动断句 → 离线识别 → 翻译 → 双语字幕 + 可选朗读。</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub 仓库</a>
+      <a class="btn btn-ghost" href="#pipeline">看工作链路 ↓</a>
+    </div>
+    <div class="hero-facts">
+      <div class="fact"><b>0 元</b><span>识别离线 · 翻译免费层</span></div>
+      <div class="fact"><b>5 语种</b><span>中 / 英 / 日 / 韩 / 粤</span></div>
+      <div class="fact"><b>RTF 0.12</b><span>8 倍实时 · CPU 单线程</span></div>
+    </div>
+    <div class="hero-facts" style="margin-top:20px">
+      <div class="fact"><b>58ms</b><span>VAD 断句延迟</span></div>
+      <div class="fact"><b>4 ABI</b><span>arm64 / armv7 / x86 / x86_64</span></div>
+      <div class="fact"><b>Apache-2.0</b><span>核心推理引擎许可</span></div>
+    </div>
+  </div>
+
+  <div class="phone-panel" aria-label="实时同传字幕演示面板">
+    <div class="pp-head"><span><span class="rec-dot"></span>LISTENING · 同传中</span><span id="ppPair">ja → zh</span></div>
+    <div class="pp-body">
+      <div class="cap" data-i="0">
+        <div class="lang-tag">ja · 识别原文</div>
+        <div class="src">明日の会議の資料、もう確認しましたか？</div>
+        <div class="lang-tag" style="margin-top:10px">zh · 译文</div>
+        <div class="dst">明天的会议资料，你已经确认过了吗？</div>
+      </div>
+      <div class="cap" data-i="1">
+        <div class="lang-tag">ko · 识别原文</div>
+        <div class="src">내일 일정을 다시 한 번 공유해 주시겠어요?</div>
+        <div class="lang-tag" style="margin-top:10px">zh · 译文</div>
+        <div class="dst">可以再把明天的日程分享一次给我吗？</div>
+      </div>
+      <div class="cap" data-i="2">
+        <div class="lang-tag">en · 识别原文</div>
+        <div class="src">Let's practice the dialogue one more time.</div>
+        <div class="lang-tag" style="margin-top:10px">zh · 译文</div>
+        <div class="dst">我们再把这段对话练习一遍吧。</div>
+      </div>
+      <div class="cap" data-i="3">
+        <div class="lang-tag">yue · 识别原文</div>
+        <div class="src">听日唔好迟到了，早点出发啦。</div>
+        <div class="lang-tag" style="margin-top:10px">zh · 译文</div>
+        <div class="dst">明天别迟到了，早点出发吧。</div>
+      </div>
+    </div>
+    <div class="cap-controls">
+      <span class="chip on">silero VAD</span>
+      <span class="chip on">SenseVoice int8</span>
+      <span class="chip" id="ppEngine">ML Kit</span>
+    </div>
+    <div class="pp-foot"><span>RTF 0.12–0.14</span><span>断句 58ms</span><span>前台服务保活</span></div>
+  </div>
+</header>
+
+<section id="pipeline">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Pipeline</div>
+      <h2>四步链路，全部跑在手机上</h2>
+      <p>识别完全离线；翻译层三引擎可切换，默认尝试 ML Kit 离线包，也可接自托管 LibreTranslate 或局域网 LLM（如 vLLM qwen）。</p>
+    </div>
+    <div class="pipeline reveal">
+      <div class="pl-node">
+        <div class="n">01 · LISTEN</div>
+        <h3>麦克风持续监听</h3>
+        <p>ListenService 前台保活，切到 Hilokal 等陪练 App 后麦克风持续工作。</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="pl-node">
+        <div class="n">02 · VAD</div>
+        <h3>silero 自动断句</h3>
+        <p>语音活动检测切分语句，实测 58ms 完成 zh.wav 分段，句起点 0.73s 精准命中。</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="pl-node">
+        <div class="n">03 · ASR</div>
+        <h3>SenseVoice 离线识别</h3>
+        <p>中/英/日/韩/粤五语自动判别，输出带标点 + ITN 数字，RTF 0.12–0.14（8 倍实时）。</p>
+        <div class="arrow">→</div>
+      </div>
+      <div class="pl-node">
+        <div class="n">04 · TRANSLATE</div>
+        <h3>双语字幕 + 朗读</h3>
+        <p>ML Kit / LibreTranslate / OpenAI 兼容 LLM 三引擎切换，字幕实时双语显示，可选朗读。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" style="padding-top:8px">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Features</div>
+      <h2>为「免费 + 实时」做的每个决定</h2>
+    </div>
+    <div class="grid">
+      <div class="card reveal">
+        <div class="ico">🔇</div>
+        <h3>完全离线 ASR</h3>
+        <p>SenseVoice int8 端侧推理（sherpa-onnx ONNX Runtime），0 元、0 流量、0 等待，五语自动判别。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🔀</div>
+        <h3>三引擎翻译抽象</h3>
+        <p>ML Kit 免费离线包 / 自托管 LibreTranslate / 任意 OpenAI 兼容 LLM，设置页一键切换。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">💬</div>
+        <h3>实时双语字幕</h3>
+        <p>原文 + 译文同屏滚动显示，可选 TTS 朗读，看剧式学外语。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">🛡️</div>
+        <h3>前台服务保活</h3>
+        <p>切后台、锁屏都不断流，ListenService 前台服务持续持有麦克风。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">📱</div>
+        <h3>全 ABI 内置</h3>
+        <p>AAR 已内置 arm64-v8a / armeabi-v7a / x86 / x86_64 全 ABI onnxruntime，开箱即装。</p>
+      </div>
+      <div class="card reveal">
+        <div class="ico">⬇️</div>
+        <h3>模型自动下载</h3>
+        <p>首启一键下载 ~240MB 模型：hf-mirror 优先，失败自动回退 HuggingFace / GitHub。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="bench">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Benchmarks</div>
+      <h2>2026-09-20 真实验证</h2>
+      <p>官方 test_wavs 全量通过，不是纸面参数。</p>
+    </div>
+    <div class="bench reveal">
+      <table>
+        <thead><tr><th>验证项</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>SenseVoice int8 五语识别（官方 test_wavs）</td><td class="ok">zh / en / ja / ko / yue 全部正确，含标点 + ITN 数字</td></tr>
+          <tr><td>解码延迟</td><td><span class="num">RTF 0.12–0.14</span>（8 倍实时，CPU 单线程）</td></tr>
+          <tr><td>silero VAD 断句</td><td><span class="num">58ms</span> 完成 zh.wav 分段，起点 0.73s 精准</td></tr>
+          <tr><td>推理引擎</td><td>sherpa-onnx v1.13.8 · Apache-2.0</td></tr>
+          <tr><td>桌面端 E2E 冒烟</td><td class="ok">五语链路全对</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="bench-note">调研落选方案：<code>Vosk</code> 中韩识别弱 · <code>whisper.cpp</code> 中端机 RTF&gt;1 · <code>sherpa-onnx 流式 zipformer</code> 仅 zh-en · <code>NLLB/OpusMT</code> 已在 v1.13.x 移除 · <code>Bergamot</code> 仅面向 GeckoView。</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow">Why not</div>
+      <h2>为什么不选它们</h2>
+    </div>
+    <div class="alt">
+      <div class="alt-card reveal"><b>Vosk</b><p>纯离线可用，但中文/韩文识别质量与标点/ITN 明显弱于 SenseVoice，且无多语自动判别。</p></div>
+      <div class="alt-card reveal"><b>whisper.cpp / whisper-streaming</b><p>质量好但中端手机 RTF&gt;1 实时性不够，流式方案复杂。</p></div>
+      <div class="alt-card reveal"><b>sherpa-onnx 内置流式 zipformer</b><p>仅 zh-en 双语，体积更大，无日韩。</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap" style="padding-top:0">
+  <div class="cta reveal">
+    <h2>说外语，出双语字幕。</h2>
+    <p>首启点「下载模型」→ 设置目标语言与翻译引擎 → 点「开始同传」→ 切到 Hilokal 说外语，字幕实时双语显示。</p>
+    <div class="row">
+      <a class="btn btn-light" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub 获取 APK 构建</a>
+      <a class="btn btn-outline" href="https://github.com/Samge0/BiTrans#readme" target="_blank" rel="noopener">阅读完整 README</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>BiTrans — 免费实时双语语音翻译 · 开源技术栈</div>
+    <div><a href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">github.com/Samge0/BiTrans</a> · Apache-2.0 / MIT / CC BY 4.0 组件许可</div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var caps = document.querySelectorAll('.cap');
+  var pairs = ['ja → zh','ko → zh','en → zh','yue → zh'];
+  var pairEl = document.getElementById('ppPair');
+  var engineEl = document.getElementById('ppEngine');
+  var engines = ['ML Kit','LibreTranslate','LLM'];
+  var ei = 0, ci = 0, reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function show(i){
+    caps.forEach(function(c,k){ c.classList.toggle('show', k===i); });
+    if(pairEl) pairEl.textContent = pairs[i];
+  }
+  function tickEngine(){
+    ei = (ei+1)%engines.length;
+    if(engineEl) engineEl.textContent = engines[ei];
+  }
+  if(reduced){ show(0); }
+  else{
+    show(0);
+    setInterval(function(){ ci=(ci+1)%caps.length; show(ci); }, 3600);
+    setInterval(tickEngine, 7200);
+  }
+
+  var io = new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  },{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+})();
+</script>
+</body>
+</html>

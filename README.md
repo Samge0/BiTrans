@@ -1,5 +1,7 @@
 # BiTrans — 免费实时双语语音翻译 (Android)
 
+> 🌐 **[在线宣传页](https://samge0.github.io/BiTrans/)** — 工作链路、实测数据、特性总览一页看懂
+
 开源技术栈实现的实时语音翻译客户端，配合 Hilokal 等语言陪练 App 使用：
 麦克风持续监听 → silero VAD 自动断句 → SenseVoice 离线识别（中/英/日/韩/粤）→ 翻译 → 双语字幕 + 可选朗读。
 
