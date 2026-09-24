@@ -1,6 +1,8 @@
 # BiTrans — 免费实时双语语音翻译 (Android)
 
 > 🌐 **[在线宣传页](https://samge0.github.io/BiTrans/)** — 工作链路、实测数据、特性总览一页看懂
+>
+> ⬇ **[下载 APK（推荐）](https://github.com/Samge0/BiTrans/releases/latest)** — 到 [Releases](https://github.com/Samge0/BiTrans/releases) 页下载 CI 签名的 APK 直接安装（如 `BiTrans-v1.3.2-arm64.apk`，约 58MB），无需自己编译。新版本由 tag 自动触发构建。
 
 开源技术栈实现的实时语音翻译客户端，配合 Hilokal 等语言陪练 App 使用：
 麦克风持续监听 → silero VAD 自动断句 → SenseVoice 离线识别（中/英/日/韩/粤）→ 翻译 → 双语字幕 + 可选朗读。
@@ -22,6 +24,8 @@
 **费用：0 元。** ASR 完全离线；翻译层默认尝试 ML Kit 离线包（需谷歌服务），也可切换到自托管 LibreTranslate 或局域网 LLM（如 vLLM qwen），彻底无 API 费用。
 
 ## 构建与安装
+
+> 💡 **大多数用户不需要自己编译。** 直接到 [Releases](https://github.com/Samge0/BiTrans/releases) 页下载最新 APK（CI 签名，push tag `v*` 自动构建），手机安装即可。
 
 ```bash
 # 前置: JDK 17+, Android SDK (platform 35, build-tools 35)

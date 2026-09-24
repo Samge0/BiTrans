@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BiTrans — 免费实时双语语音翻译 · Android</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <meta name="description" content="开源技术栈实时同传 Android 客户端：silero VAD 断句 → SenseVoice 离线识别（中/英/日/韩/粤）→ 三引擎翻译 → 双语字幕，全程 0 元。">
 <style>
 :root{
@@ -53,6 +54,7 @@ nav .links a:hover{color:var(--ink);text-decoration:none}
 .btn-primary:hover{background:var(--primary-active)}
 .btn-ghost{background:var(--surface-card);color:var(--ink);border:1px solid var(--hairline)}
 .btn-ghost:hover{background:var(--surface-strong)}
+.dl-hint{font-size:12.5px;color:var(--muted-soft);margin-top:10px;font-family:var(--mono)}
 .hero-facts{display:flex;gap:26px;margin-top:38px;flex-wrap:wrap}
 .fact b{display:block;font-family:var(--serif);font-size:26px;color:var(--ink);font-weight:600}
 .fact span{font-size:12.5px;color:var(--muted-soft)}
@@ -166,6 +168,7 @@ footer a{color:var(--muted)}
       <a href="#pipeline">工作链路</a>
       <a href="#features">特性</a>
       <a href="#bench">实测</a>
+      <a href="https://github.com/Samge0/BiTrans/releases/latest" target="_blank" rel="noopener">下载 APK ↓</a>
       <a class="nav-cta" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub →</a>
     </div>
   </div>
@@ -177,7 +180,11 @@ footer a{color:var(--muted)}
     <h1>说外语，<br>出<em>双语字幕</em>。</h1>
     <p class="lede">开源技术栈实现的实时语音翻译 Android 客户端，配合 Hilokal 等语言陪练 App 使用：麦克风持续监听 → 自动断句 → 离线识别 → 翻译 → 双语字幕 + 可选朗读。</p>
     <div class="hero-actions">
-      <a class="btn btn-primary" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub 仓库</a>
+      <div>
+        <a class="btn btn-primary" href="https://github.com/Samge0/BiTrans/releases/latest" target="_blank" rel="noopener">⬇ 下载 APK（v1.3.2 · arm64）</a>
+        <div class="dl-hint">BiTrans-v1.3.2-arm64.apk · 58MB · CI 签名 · Releases 页获取最新版</div>
+      </div>
+      <a class="btn btn-ghost" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub 仓库</a>
       <a class="btn btn-ghost" href="#pipeline">看工作链路 ↓</a>
     </div>
     <div class="hero-facts">
@@ -345,10 +352,10 @@ footer a{color:var(--muted)}
 <section class="wrap" style="padding-top:0">
   <div class="cta reveal">
     <h2>说外语，出双语字幕。</h2>
-    <p>首启点「下载模型」→ 设置目标语言与翻译引擎 → 点「开始同传」→ 切到 Hilokal 说外语，字幕实时双语显示。</p>
+    <p>不用自己编译——到 Releases 页下载 CI 签名的 APK 直接安装：首启点「下载模型」（~240MB）→ 设置目标语言与翻译引擎 → 点「开始同传」→ 切到 Hilokal 说外语，字幕实时双语显示。</p>
     <div class="row">
-      <a class="btn btn-light" href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">GitHub 获取 APK 构建</a>
-      <a class="btn btn-outline" href="https://github.com/Samge0/BiTrans#readme" target="_blank" rel="noopener">阅读完整 README</a>
+      <a class="btn btn-light" href="https://github.com/Samge0/BiTrans/releases/latest" target="_blank" rel="noopener">⬇ 前往 Releases 下载 APK</a>
+      <a class="btn btn-outline" href="https://github.com/Samge0/BiTrans#构建与安装" target="_blank" rel="noopener">自己编译（JDK 17 + Android SDK）</a>
     </div>
   </div>
 </section>
@@ -356,7 +363,7 @@ footer a{color:var(--muted)}
 <footer>
   <div class="wrap">
     <div>BiTrans — 免费实时双语语音翻译 · 开源技术栈</div>
-    <div><a href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">github.com/Samge0/BiTrans</a> · Apache-2.0 / MIT / CC BY 4.0 组件许可</div>
+    <div><a href="https://github.com/Samge0/BiTrans/releases/latest" target="_blank" rel="noopener">下载 APK</a> · <a href="https://github.com/Samge0/BiTrans" target="_blank" rel="noopener">github.com/Samge0/BiTrans</a> · Apache-2.0 / MIT / CC BY 4.0 组件许可</div>
   </div>
 </footer>
 
