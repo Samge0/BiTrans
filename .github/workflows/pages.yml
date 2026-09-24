@@ -22,16 +22,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Add CNAME file (custom domain, optional)
+        # 预留自定义域名：repo Settings → Secrets and variables → Actions 配置
+        # CUSTOM_CNAME 后自动生效；未配置时跳过，避免写入空 CNAME 覆盖已有绑定。
+        # 仓库内永不提交 CNAME 文件（域名只通过 secret 部署期动态注入 docs/CNAME，
+        # 因 artifact path 为 ./docs，注入根目录不会被打包）
+        run: |
+          if [ -n "${{ secrets.CUSTOM_CNAME }}" ]; then
+            echo "${{ secrets.CUSTOM_CNAME }}" > ./docs/CNAME
+            echo "CNAME set to: ${{ secrets.CUSTOM_CNAME }}"
+          else
+            echo "CUSTOM_CNAME not set, skip CNAME file"
+          fi
+
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         with:
           # Pages 未开启时自动开启（首次部署免手动去 Settings 配置）
           enablement: true
+
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./docs
+
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
