@@ -3,10 +3,9 @@
 开源技术栈实现的实时语音翻译客户端，配合 Hilokal 等语言陪练 App 使用：
 麦克风持续监听 → silero VAD 自动断句 → SenseVoice 离线识别（中/英/日/韩/粤）→ 翻译 → 双语字幕 + 可选朗读。
 
-
-
-https://github.com/user-attachments/assets/0f0f1f87-9aeb-4b97-961f-8042709fca10
-
+| 视频 1 | 视频 2 |
+| --- | --- |
+| https://github.com/user-attachments/assets/0f0f1f87-9aeb-4b97-961f-8042709fca10 | https://github.com/user-attachments/assets/b0d6c2e6-5776-4120-ab91-03810f7e995e |
 
 
 ## 技术栈与许可证
