@@ -204,6 +204,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onSegment = { samples, _ -> handleSegment(samples) },
                 onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
                 onPartialLevel = { _level.value = it },
+                onSilenced = {
+                    _status.value = "麦克风被占用（语音房开麦时系统会静音后台应用）。请在系统设置里允许 BiTrans 后台使用麦克风，或尝试将 Hilokal 的麦克风独占关闭"
+                },
             ).also {
                 it.start()
                 _listening.value = true
