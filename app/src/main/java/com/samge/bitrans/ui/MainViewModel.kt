@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import android.util.Log
+import android.widget.Toast
 import java.util.Locale
 
 sealed interface UiState {
@@ -226,7 +227,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             mic?.stop()
             mic = null
             _listening.value = false
-            _status.value = ""
+            _status.value = ""  // v1.4.4: keep the status row empty so capture chips stay visible
             com.samge.bitrans.listen.ListenService.stop(ctx())
             if (_captureMode.value == "playback") {
                 com.samge.bitrans.listen.PlaybackCaptureService.stop(ctx())
@@ -254,11 +255,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Persist the finished session (captions incl. timestamps) to Room. */
+    /** Persist the finished session (captions incl. timestamps) to Room.
+     *  v1.4.4: result is a Toast (not the status row) — writing the status row
+     *  replaced the capture-source chips and visually blocked them. */
     private fun saveSessionToDb() {
         val caps = _captions.value
         if (caps.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
+            var saved = false
             try {
                 val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
                 val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -280,9 +284,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         target = c.target,
                     )
                 })
-                withContext(Dispatchers.Main) { _status.value = "记录已保存到历史" }
+                saved = true
             } catch (t: Throwable) {
                 Log.w("BiTrans", "saveSession failed", t)
+            }
+            if (saved) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(getApplication(), "记录已保存到历史", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -497,6 +506,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _chatStreaming = MutableStateFlow(false)
     val chatStreaming: StateFlow<Boolean> = _chatStreaming
 
+    /**
+     * Streaming deltas live on their OWN channel, NOT in _chatMessages.
+     * RACE (v1.4.4 fix): the provisional streaming entry used to live inside
+     * _chatMessages, but bindChat's Room Flow collector re-emits the DB list
+     * asynchronously right after the user message is persisted — WIPING the
+     * provisional entry mid-stream, so the typewriter never saw deltas and the
+     * reply appeared in one dump. Deltas now land here; the UI composes
+     * DB history + this live entry, immune to Room re-emissions.
+     */
+    private val _chatLiveDelta = MutableStateFlow<com.samge.bitrans.data.ChatMessage?>(null)
+    val chatLiveDelta: StateFlow<com.samge.bitrans.data.ChatMessage?> = _chatLiveDelta
+
     fun chatFlowOf(sessionId: Long): Flow<List<com.samge.bitrans.data.ChatMessage>> =
         com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao().chatFlow(sessionId)
 
@@ -552,22 +573,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val msgs = mutableListOf("system" to "你是一个对话记录分析助手。用户会提供一段语音翻译记录（原文|译文 每行一条），请基于它回答问题或做总结。回答使用中文。")
                 msgs.add("user" to "对话记录如下：\n${transcriptContext(sessionId)}")
                 prior.forEach { msgs.add(it.role to it.content) }
-                // stream deltas accumulate in a single provisional Flow entry;
-                // the UI runs its own typewriter reveal on top of this content.
-                val provisionalId = -777L
+                // stream deltas accumulate into the LIVE-DELTA channel (not
+                // _chatMessages — Room re-emissions would wipe a provisional
+                // entry there mid-stream); the UI runs its own typewriter.
                 val acc = StringBuilder()
-                _chatMessages.value = _chatMessages.value + com.samge.bitrans.data.ChatMessage(
-                    id = provisionalId, sessionId = sessionId, ts = System.currentTimeMillis(),
+                _chatLiveDelta.value = com.samge.bitrans.data.ChatMessage(
+                    id = -777L, sessionId = sessionId, ts = System.currentTimeMillis(),
                     role = "assistant", content = "",
                 )
                 engine.chatStream(msgs) { delta ->
                     acc.append(delta)
-                    _chatMessages.value = _chatMessages.value.map {
-                        if (it.id == provisionalId) it.copy(content = acc.toString()) else it
-                    }
+                    _chatLiveDelta.value = _chatLiveDelta.value?.copy(content = acc.toString())
                 }.onSuccess { full ->
-                    // drop provisional; Room Flow will deliver the final persisted row
-                    _chatMessages.value = _chatMessages.value.filter { it.id != provisionalId }
+                    // clear live entry; Room Flow delivers the final persisted row
+                    _chatLiveDelta.value = null
                     dao.insertChat(
                         com.samge.bitrans.data.ChatMessage(
                             sessionId = sessionId, ts = System.currentTimeMillis(),
@@ -575,10 +594,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     )
                 }.onFailure { e ->
-                    _chatMessages.value = _chatMessages.value.map {
-                        if (it.id == provisionalId) it.copy(content = "总结失败：${e.message}") else it
-                    }
+                    // leave the error text in the live entry; UI hands it to its
+                    // typewriter buffer before we clear, so the message stays visible
+                    _chatLiveDelta.value = _chatLiveDelta.value?.copy(content = "总结失败：${e.message}")
                 }
+                _chatLiveDelta.value = null
             } finally {
                 _chatStreaming.value = false
             }

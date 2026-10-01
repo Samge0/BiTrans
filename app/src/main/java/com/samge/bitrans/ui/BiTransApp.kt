@@ -866,11 +866,13 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
     val sessions by vm.sessions.collectAsState()
     var openSession by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
     var showChat by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
-    // no outer top bar on sub-pages: compensate with status-bar inset
+    // no outer top bar on sub-pages: compensate with status-bar inset.
+    // v1.4.4: list page needs only status-bar + small breathing room — the old
+    // +48dp (phantom title height) stacked with the inset into a big blank area.
     val statusBarInset = WindowInsets.statusBars
         .asPaddingValues()
         .calculateTopPadding()
-    val topPad = if (openSession == null) statusBarInset + 48.dp else statusBarInset + 8.dp
+    val topPad = statusBarInset + 8.dp
 
     // sub-page back handling: pops detail->list, chat->detail (inner wins over outer)
     androidx.activity.compose.BackHandler(enabled = openSession != null) {
@@ -990,7 +992,26 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
         return
     }
 
+    // list page: light header row (title + count) below the status-bar inset
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(top = topPad)) {
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "历史记录",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight(600),
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${sessions.size} 次记录",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         items(sessions, key = { it.id }) { s ->
             Surface(
                 shape = CardShape,
@@ -1036,6 +1057,7 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
 private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session, onExit: () -> Unit) {
     val ctx = LocalContext.current
     val streaming by vm.chatStreaming.collectAsState()
+    val liveDelta by vm.chatLiveDelta.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -1043,28 +1065,35 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
     // a fixed pace. Deterministic regardless of transport batching. ----
     var fullText by remember { mutableStateOf("") }
     var shownChars by remember { mutableStateOf(0) }
-    var streamingMsg by remember { mutableStateOf<String?>(null) } // provisional streaming msg
+    // error text survives streaming end: shown as a finished bubble
+    var errorText by remember { mutableStateOf<String?>(null) }
     val persisted by vm.chatMessages.collectAsState()
 
-    // provisional streaming entry lives in _chatMessages (id = -777), NOT in Room
-    val provisional = persisted.lastOrNull { it.id == -777L }
+    val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
     LaunchedEffect(streaming) {
         if (streaming) {
             fullText = ""
             shownChars = 0
-            streamingMsg = "…"
+            errorText = null
         }
     }
-    // ingest provisional content as it grows
-    LaunchedEffect(provisional?.content) {
-        val c = provisional?.content ?: return@LaunchedEffect
-        if (streaming && c.length > fullText.length) fullText = c
+    // ingest live-delta channel as it grows
+    LaunchedEffect(liveDelta?.content) {
+        val c = liveDelta?.content ?: return@LaunchedEffect
+        if (c.startsWith("总结失败")) errorText = c else if (c.length > fullText.length) fullText = c
+    }
+    // when streaming ends with an error, keep it as a finished bubble
+    LaunchedEffect(streaming) {
+        if (!streaming && fullText.isBlank() && errorText != null) {
+            fullText = errorText ?: ""
+            shownChars = fullText.length
+        }
     }
     // steady reveal loop
     LaunchedEffect(streaming, fullText) {
         if (!streaming) {
-            shownChars = 0
-            streamingMsg = null
+            if (fullText.isNotBlank() && errorText != null) shownChars = fullText.length
             return@LaunchedEffect
         }
         while (streaming && shownChars < fullText.length) {
@@ -1073,25 +1102,26 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
         }
     }
 
-    // display list = persisted history (minus provisional) + typewriter line
+    // display list = persisted history + typewriter line (live entry is
+    // NOT in persisted — Room re-emissions can't wipe it mid-stream)
     val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, streaming, shownChars, fullText) {
-        val done = persisted.filter { it.id != -777L }
-        done + (streamingMsg?.let {
-            listOf(
+        val showLive = streaming || (errorText != null && fullText == errorText)
+        if (showLive && fullText.isNotBlank()) {
+            persisted + listOf(
                 com.samge.bitrans.data.ChatMessage(
                     id = Long.MAX_VALUE, sessionId = session.id,
                     ts = 0, role = "assistant",
                     content = fullText.take(shownChars),
                 )
             )
-        } ?: emptyList())
+        } else persisted
     }
 
     LaunchedEffect(msgs.size, msgs.lastOrNull()?.content?.length) {
         if (msgs.isNotEmpty()) listState.scrollToItem(msgs.lastIndex)
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().padding(top = statusBarInset)) {
         // header
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),

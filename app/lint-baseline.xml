@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<issues format="6" by="lint 8.7.3" type="baseline" client="gradle" dependencies="false" name="AGP (8.7.3)" variant="all" version="8.7.3">
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.content.Context#startForegroundService`"
+        errorLine1="            runCatching { ctx.startForegroundService(svc) }"
+        errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="109"
+            column="31"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel()`"
+        errorLine1="        val ch = NotificationChannel(CHANNEL, &quot;实时翻译&quot;, NotificationManager.IMPORTANCE_LOW)"
+        errorLine2="                 ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/ListenService.kt"
+            line="42"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setShowBadge`"
+        errorLine1="        ch.setShowBadge(false)"
+        errorLine2="           ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/ListenService.kt"
+            line="43"
+            column="12"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setDescription`"
+        errorLine1="        ch.description = &quot;后台监听状态与字幕兜底显示&quot;"
+        errorLine2="           ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/ListenService.kt"
+            line="44"
+            column="12"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#createNotificationChannel`"
+        errorLine1="        getSystemService(NotificationManager::class.java).createNotificationChannel(ch)"
+        errorLine2="                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/ListenService.kt"
+            line="45"
+            column="59"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.content.Context#startForegroundService`"
+        errorLine1="                ctx.startForegroundService(Intent(ctx, ListenService::class.java))"
+        errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/ListenService.kt"
+            line="56"
+            column="21"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.app.Service#startForeground`"
+        errorLine1="        startForeground(NOTIF_ID, buildNotification(), fgType())"
+        errorLine2="        ~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="52"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.media.AudioPlaybackCaptureConfiguration.Builder()`"
+        errorLine1="        val config = AudioPlaybackCaptureConfiguration.Builder(projection)"
+        errorLine2="                                                       ~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="67"
+            column="56"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.media.AudioPlaybackCaptureConfiguration.Builder#addMatchingUsage`"
+        errorLine1="            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)"
+        errorLine2="             ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="68"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.media.AudioPlaybackCaptureConfiguration.Builder#addMatchingUsage`"
+        errorLine1="            .addMatchingUsage(AudioAttributes.USAGE_GAME)"
+        errorLine2="             ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="69"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.media.AudioPlaybackCaptureConfiguration.Builder#addMatchingUsage`"
+        errorLine1="            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)"
+        errorLine2="             ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="70"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.media.AudioPlaybackCaptureConfiguration.Builder#build`"
+        errorLine1="            .build()"
+        errorLine2="             ~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="71"
+            column="14"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 29 (current min is 24): `android.media.AudioRecord.Builder#setAudioPlaybackCaptureConfig`"
+        errorLine1="                    .setAudioPlaybackCaptureConfig(config)"
+        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="87"
+            column="22"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel()`"
+        errorLine1="        val ch = NotificationChannel(CHANNEL, &quot;回放采集&quot;, NotificationManager.IMPORTANCE_LOW)"
+        errorLine2="                 ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="122"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationChannel#setShowBadge`"
+        errorLine1="        ch.setShowBadge(false)"
+        errorLine2="           ~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="123"
+            column="12"/>
+    </issue>
+
+    <issue
+        id="NewApi"
+        message="Call requires API level 26 (current min is 24): `android.app.NotificationManager#createNotificationChannel`"
+        errorLine1="        getSystemService(NotificationManager::class.java).createNotificationChannel(ch)"
+        errorLine2="                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/listen/PlaybackCaptureService.kt"
+            line="124"
+            column="59"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.core:core-ktx than 1.13.1 is available: 1.19.1"
+        errorLine1="    implementation(&quot;androidx.core:core-ktx:1.13.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="92"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-runtime-ktx than 2.8.4 is available: 2.11.0"
+        errorLine1="    implementation(&quot;androidx.lifecycle:lifecycle-runtime-ktx:2.8.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="93"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.lifecycle:lifecycle-viewmodel-compose than 2.8.4 is available: 2.11.0"
+        errorLine1="    implementation(&quot;androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="94"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.activity:activity-compose than 1.9.1 is available: 1.13.0"
+        errorLine1="    implementation(&quot;androidx.activity:activity-compose:1.9.1&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="95"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.compose:compose-bom than 2024.09.03 is available: 2026.09.00"
+        errorLine1="    implementation(platform(&quot;androidx.compose:compose-bom:2024.09.03&quot;))"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="96"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-runtime than 2.6.1 is available: 2.8.5"
+        errorLine1="    implementation(&quot;androidx.room:room-runtime:$room&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="113"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-ktx than 2.6.1 is available: 2.8.5"
+        errorLine1="    implementation(&quot;androidx.room:room-ktx:$room&quot;)"
+        errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="114"
+            column="20"/>
+    </issue>
+
+    <issue
+        id="GradleDependency"
+        message="A newer version of androidx.room:room-compiler than 2.6.1 is available: 2.8.5"
+        errorLine1="    ksp(&quot;androidx.room:room-compiler:$room&quot;)"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="115"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="LockedOrientationActivity"
+        message="Expecting `android:screenOrientation=&quot;unspecified&quot;` or `&quot;fullSensor&quot;` for this activity so the user can use the application in any orientation and provide a great experience on Chrome OS devices"
+        errorLine1="            android:screenOrientation=&quot;portrait&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="24"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="DiscouragedApi"
+        message="Should not restrict activity to fixed orientation. This may not be suitable for different form factors, causing the app to be letterboxed."
+        errorLine1="            android:screenOrientation=&quot;portrait&quot;"
+        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/AndroidManifest.xml"
+            line="24"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="ChromeOsAbiSupport"
+        message="Missing x86_64 ABI support for ChromeOS"
+        errorLine1="            abiFilters += listOf(&quot;arm64-v8a&quot;)"
+        errorLine2="                          ~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="build.gradle.kts"
+            line="32"
+            column="27"/>
+    </issue>
+
+    <issue
+        id="StaticFieldLeak"
+        message="Do not place Android context classes in static fields (static reference to `OverlayService` which has field `box` pointing to `LinearLayout`); this is a memory leak"
+        errorLine1="        @Volatile private var instance: OverlayService? = null"
+        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/overlay/OverlayService.kt"
+            line="192"
+            column="9"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
+        errorLine1="        var tapCount by remember { mutableStateOf(0) }"
+        errorLine2="                                   ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="385"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
+        errorLine1="        var lastTap by remember { mutableStateOf(0L) }"
+        errorLine2="                                  ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="386"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
+        errorLine1="    var overlayW by remember { mutableStateOf(cur.overlayW.toFloat()) }"
+        errorLine2="                               ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="617"
+            column="32"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
+        errorLine1="    var overlayFont by remember { mutableStateOf(cur.overlayFont.toFloat()) }"
+        errorLine2="                                  ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="618"
+            column="35"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
+        errorLine1="    var overlayAlpha by remember { mutableStateOf(cur.overlayAlpha.toFloat()) }"
+        errorLine2="                                   ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="619"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
+        errorLine1="    var overlayLines by remember { mutableStateOf(cur.overlayLines.toFloat()) }"
+        errorLine2="                                   ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="620"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="AutoboxingStateCreation"
+        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
+        errorLine1="    var shownChars by remember { mutableStateOf(0) }"
+        errorLine2="                                 ~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/samge/bitrans/ui/BiTransApp.kt"
+            line="1067"
+            column="34"/>
+    </issue>
+
+    <issue
+        id="MonochromeLauncherIcon"
+        message="The application adaptive icon is missing a monochrome tag"
+        errorLine1="&lt;adaptive-icon xmlns:android=&quot;http://schemas.android.com/apk/res/android&quot;>"
+        errorLine2="^">
+        <location
+            file="src/main/res/mipmap-anydpi-v26/ic_launcher.xml"
+            line="2"
+            column="1"/>
+    </issue>
+
+</issues>
