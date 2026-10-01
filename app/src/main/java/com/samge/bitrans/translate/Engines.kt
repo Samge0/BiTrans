@@ -231,6 +231,11 @@ class LlmEngine(
             conn.readTimeout = 120000
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "text/event-stream")
+            // CRITICAL for streaming: HttpURLConnection adds Accept-Encoding:gzip
+            // by default and its transparent GZIP decoder RE-BUFFERS chunks into
+            // large batches — visually killing the typewriter effect. Identity
+            // disables compression so SSE bytes surface immediately.
+            conn.setRequestProperty("Accept-Encoding", "identity")
             if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
             val body = org.json.JSONObject().apply {
                 put("model", model)

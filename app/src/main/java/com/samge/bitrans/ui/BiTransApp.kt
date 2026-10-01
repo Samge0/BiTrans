@@ -77,6 +77,8 @@ fun BiTransApp(vm: MainViewModel) {
     val settings by vm.settings.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
+    // sub-page inside History (detail/chat) - hides the outer title
+    var historySubPage by remember { mutableStateOf<String?>(null) }
     // live-edited settings snapshot kept current by SettingsPane (used on back = autosave)
     var pendingEdits by remember { mutableStateOf<AppSettings?>(null) }
 
@@ -139,7 +141,7 @@ fun BiTransApp(vm: MainViewModel) {
 
     androidx.activity.compose.BackHandler(enabled = showSettings || showHistory) {
         if (showSettings) exitSettingsSavingEdits()
-        if (showHistory) showHistory = false
+        if (showHistory) { showHistory = false; historySubPage = null }
     }
 
     Scaffold(
@@ -149,7 +151,7 @@ fun BiTransApp(vm: MainViewModel) {
                 title = {
                     Text(
                         when {
-                            showHistory -> "历史记录"
+                            showHistory -> if (historySubPage == null) "历史记录" else " "
                             showSettings -> "设置"
                             else -> "BiTrans"
                         },
@@ -161,7 +163,7 @@ fun BiTransApp(vm: MainViewModel) {
                     if (showSettings || showHistory) {
                         IconButton(onClick = {
                             if (showSettings) exitSettingsSavingEdits()
-                            if (showHistory) showHistory = false
+                            if (showHistory) { showHistory = false; historySubPage = null }
                         }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
@@ -207,7 +209,7 @@ fun BiTransApp(vm: MainViewModel) {
                         // back/gesture exit hands us the LIVE edited state (not the persisted snapshot)
                         pendingEdits = edited
                     }
-                    showHistory -> HistoryPane(vm)
+                    showHistory -> HistoryPane(vm) { sub -> historySubPage = sub }
                     else -> MainPane(
                         vm, captions, settings, status, level, listening,
                         captureMode = captureMode,
@@ -238,29 +240,16 @@ private fun MainPane(
             autoScroll = settings.autoScroll,
             modifier = Modifier.weight(1f),
         )
-        // capture-source selector (mic vs reverse playback capture)
-        if (!listening) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FilterChip(
-                    selected = captureMode == "mic",
-                    onClick = { onCaptureMode("mic") },
-                    label = { Text("麦克风", fontSize = 12.sp) },
-                    shape = PillShape,
-                )
-                FilterChip(
-                    selected = captureMode == "playback",
-                    onClick = { onCaptureMode("playback") },
-                    label = { Text("手机播放声(语音房)", fontSize = 12.sp) },
-                    shape = PillShape,
-                )
-            }
-        }
-        // #2: status row and auto-scroll toggle share one row, spread out
-        StatusAndScrollRow(status, level, listening, settings.autoScroll) { vm.setAutoScroll(it) }
+        // single compact row: status/capture-chips (left) + auto-scroll (right)
+        StatusAndScrollRow(
+            status = status,
+            level = level,
+            listening = listening,
+            autoScroll = settings.autoScroll,
+            captureMode = captureMode,
+            onToggleScroll = { vm.setAutoScroll(it) },
+            onCaptureMode = onCaptureMode,
+        )
         Spacer(Modifier.height(6.dp))
         ControlButtons(
             listening = listening,
@@ -312,7 +301,9 @@ private fun StatusAndScrollRow(
     level: Float,
     listening: Boolean,
     autoScroll: Boolean,
+    captureMode: String,
     onToggleScroll: (Boolean) -> Unit,
+    onCaptureMode: (String) -> Unit,
 ) {
     Row(
         Modifier
@@ -333,12 +324,28 @@ private fun StatusAndScrollRow(
                 Spacer(Modifier.width(6.dp))
                 Text("聆听中", fontSize = 12.sp)
             }
+            if (!listening && status.isBlank()) {
+                // capture-source chips only when idle and no status message
+                FilterChip(
+                    selected = captureMode == "mic",
+                    onClick = { onCaptureMode("mic") },
+                    label = { Text("麦克风", fontSize = 11.sp) },
+                    shape = PillShape,
+                )
+                Spacer(Modifier.width(6.dp))
+                FilterChip(
+                    selected = captureMode == "playback",
+                    onClick = { onCaptureMode("playback") },
+                    label = { Text("播放声", fontSize = 11.sp) },
+                    shape = PillShape,
+                )
+            }
             if (status.isNotBlank()) {
                 Text(
                     status,
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.error,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -851,11 +858,19 @@ private fun SettingSlider(label: String, value: Float, range: ClosedFloatingPoin
 // ---------------- History ----------------
 
 @Composable
-private fun HistoryPane(vm: MainViewModel) {
+private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
     val ctx = LocalContext.current
     val sessions by vm.sessions.collectAsState()
     var openSession by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
     var showChat by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
+
+    LaunchedEffect(openSession?.id, showChat?.id) {
+        onSubPage(when {
+            showChat != null -> "chat"
+            openSession != null -> "detail"
+            else -> null
+        })
+    }
 
     if (openSession != null) {
         val session = openSession!!
