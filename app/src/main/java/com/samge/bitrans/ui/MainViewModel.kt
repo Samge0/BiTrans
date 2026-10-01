@@ -210,7 +210,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
             onPartialLevel = { _level.value = it },
             onSilenced = {
-                _status.value = "未采集到播放声音：目标应用可能把音频标记为通话类（系统不允许捕获），或当前没有声音在播放"
+                _status.value = "未采集到播放声。请先用浏览器播放任意视频测试：若视频能出字幕而语音房不能，说明 Hilokal 的声音被标记为通话类（系统禁止捕获，需换方案）"
             },
             externalRecorder = com.samge.bitrans.listen.PlaybackCaptureService.reader16k(),
         ).also {

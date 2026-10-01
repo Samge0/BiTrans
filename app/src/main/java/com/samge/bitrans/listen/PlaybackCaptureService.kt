@@ -64,34 +64,44 @@ class PlaybackCaptureService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun startCapture(projection: MediaProjection) {
-        val captureRate = 48000 // playback captures commonly run at 48k
-        val minBuf = AudioRecord.getMinBufferSize(
-            captureRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-        )
         val config = AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
             .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
             .build()
-        val format = AudioFormat.Builder()
-            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setSampleRate(captureRate)
-            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
-            .build()
-        val record = AudioRecord.Builder()
-            .setAudioFormat(format)
-            .setBufferSizeInBytes(maxOf(minBuf, 16384))
-            .setAudioPlaybackCaptureConfig(config)
-            .build()
-        if (record.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "playback-capture AudioRecord init failed")
-            record.release()
-            stopSelf()
+        // Some ROMs only deliver capture at 44.1k; probe both rates and use the
+        // first that initializes AND reports a sane position after start.
+        for (captureRate in intArrayOf(48000, 44100)) {
+            val minBuf = AudioRecord.getMinBufferSize(
+                captureRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+            )
+            val format = AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(captureRate)
+                .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                .build()
+            val record = try {
+                AudioRecord.Builder()
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(maxOf(minBuf, 16384))
+                    .setAudioPlaybackCaptureConfig(config)
+                    .build()
+            } catch (t: Throwable) {
+                Log.w(TAG, "capture builder failed @${captureRate}: ${t.message}")
+                continue
+            }
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                record.release()
+                continue
+            }
+            record.startRecording()
+            captureRateHz.set(captureRate)
+            captureRecord.set(record)
+            Log.i(TAG, "playback capture started @${captureRate}Hz")
             return
         }
-        record.startRecording()
-        captureRecord.set(record)
-        Log.i(TAG, "playback capture started @${captureRate}Hz")
+        Log.e(TAG, "playback-capture AudioRecord init failed at all rates")
+        stopSelf()
     }
 
     override fun onDestroy() {
@@ -139,6 +149,7 @@ class PlaybackCaptureService : Service() {
 
         private val projectionHolder = AtomicReference<MediaProjection?>(null)
         private val captureRecord = AtomicReference<AudioRecord?>(null)
+        private val captureRateHz = java.util.concurrent.atomic.AtomicInteger(48000)
         private val ui = android.os.Handler(android.os.Looper.getMainLooper())
 
         fun active(): Boolean = captureRecord.get() != null
@@ -154,35 +165,47 @@ class PlaybackCaptureService : Service() {
 
         /**
          * Reader for MicListener's externalRecorder: reads playback audio and
-         * downsamples 48k->16k (simple linear decimation by 3), block-aligned to
-         * the pipeline's window.
+         * resamples to 16k (nearest-sample with phase accumulator — exact ratio
+         * for 48k=3:1 and 44.1k=2.75625:1), block-aligned to the window.
          */
         fun reader16k(): (ShortArray, Int) -> Int {
-            val CAP = 48000
-            val ratio = CAP / 16000 // 3
-            val raw = ShortArray(512 * ratio)
-            val leftover = ArrayDeque<Short>()
+            val raw = ShortArray(4096)
+            val pending = ArrayDeque<Short>()  // input samples not yet consumed
+            var carry = 0.0                    // fractional source-sample credit
             return lambda@{ pcmBuf, window ->
                 val rec = captureRecord.get()
                 if (rec == null) {
                     -1
                 } else {
+                    val srcPerDst = captureRateHz.get().toDouble() / 16000.0
                     var outIdx = 0
-                    // drain leftovers first
-                    while (leftover.isNotEmpty() && outIdx < window) {
-                        pcmBuf[outIdx++] = leftover.removeFirst()
+                    // 1) drain pending input samples, emitting output when enough credit
+                    while (outIdx < window && pending.isNotEmpty()) {
+                        var need = srcPerDst + carry
+                        while (need >= 1.0 && pending.isNotEmpty()) {
+                            pending.removeFirst()
+                            need -= 1.0
+                        }
+                        carry = need
+                        if (pending.isNotEmpty()) {
+                            pcmBuf[outIdx++] = pending.first()
+                        }
                     }
+                    // 2) pull fresh audio and repeat
                     while (outIdx < window) {
                         val n = rec.read(raw, 0, raw.size)
                         if (n <= 0) break
                         var i = 0
-                        while (i + ratio <= n && outIdx < window) {
-                            // average the 3 samples (crude but adequate anti-alias)
-                            val avg = ((raw[i].toInt() + raw[i + 1].toInt() + raw[i + 2].toInt()) / 3).toShort()
-                            pcmBuf[outIdx++] = avg
-                            i += ratio
+                        while (i < n) pending.addLast(raw[i++])
+                        var need = srcPerDst + carry
+                        while (need >= 1.0 && pending.isNotEmpty()) {
+                            pending.removeFirst()
+                            need -= 1.0
                         }
-                        while (i < n) leftover.addLast(raw[i++])
+                        carry = need
+                        if (pending.isNotEmpty()) {
+                            pcmBuf[outIdx++] = pending.first()
+                        } else break
                     }
                     outIdx
                 }
