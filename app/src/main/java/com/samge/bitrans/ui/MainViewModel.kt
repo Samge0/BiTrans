@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
@@ -482,6 +483,103 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
             dao.deleteItemsOf(id)
             dao.deleteSession(id)
+        }
+    }
+
+    /** whether the LLM engine is configured (for summary-chat gating) */
+    fun llmConfigured(): Boolean =
+        TranslateConfig.engineKind(ctx()) == "llm" && TranslateConfig.llmBaseUrl(ctx()).isNotBlank()
+
+    // ---------------- summary chat (LLM) ----------------
+
+    private val _chatMessages = MutableStateFlow<List<com.samge.bitrans.data.ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<com.samge.bitrans.data.ChatMessage>> = _chatMessages
+    private val _chatStreaming = MutableStateFlow(false)
+    val chatStreaming: StateFlow<Boolean> = _chatStreaming
+
+    fun chatFlowOf(sessionId: Long): Flow<List<com.samge.bitrans.data.ChatMessage>> =
+        com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao().chatFlow(sessionId)
+
+    fun bindChat(sessionId: Long) {
+        viewModelScope.launch {
+            chatFlowOf(sessionId).collect { _chatMessages.value = it }
+        }
+    }
+
+    fun clearChat(sessionId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao().clearChat(sessionId)
+        }
+    }
+
+    /** Build transcript context (source+target lines) for the LLM. */
+    private suspend fun transcriptContext(sessionId: Long): String {
+        val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+        val items = dao.itemsFlow(sessionId).first()
+        return items.joinToString("\n") { "- [${it.langTag}] ${it.source} | ${it.target}" }
+    }
+
+    /** Auto-run the initial summary if no chat exists yet. */
+    fun maybeAutoSummarize(sessionId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+            val existing = dao.chatFlow(sessionId).first()
+            if (existing.isNotEmpty()) return@launch
+            sendChat(sessionId, "请总结这段对话记录：讨论的主题、关键信息点、结论。用中文分点输出。")
+        }
+    }
+
+    /** Send a user message + stream the assistant reply, persisting both. */
+    fun sendChat(sessionId: Long, userText: String) {
+        if (_chatStreaming.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+            val engine = TranslateConfig.currentEngine(ctx())
+            if (engine !is com.samge.bitrans.translate.LlmEngine) {
+                _status.value = "请先在设置页配置 LLM 引擎后再使用总结"
+                return@launch
+            }
+            _chatStreaming.value = true
+            try {
+                dao.insertChat(
+                    com.samge.bitrans.data.ChatMessage(
+                        sessionId = sessionId, ts = System.currentTimeMillis(),
+                        role = "user", content = userText,
+                    )
+                )
+                // build message list: transcript context (once) + prior chat + new user msg
+                val prior = dao.chatFlow(sessionId).first()
+                val msgs = mutableListOf("system" to "你是一个对话记录分析助手。用户会提供一段语音翻译记录（原文|译文 每行一条），请基于它回答问题或做总结。回答使用中文。")
+                msgs.add("user" to "对话记录如下：\n${transcriptContext(sessionId)}")
+                prior.forEach { msgs.add(it.role to it.content) }
+                // streaming reply appended progressively to a shadow message
+                val shadowId = System.currentTimeMillis()
+                _chatMessages.value = _chatMessages.value + com.samge.bitrans.data.ChatMessage(
+                    id = shadowId, sessionId = sessionId, ts = System.currentTimeMillis(),
+                    role = "assistant", content = "",
+                )
+                val acc = StringBuilder()
+                engine.chatStream(msgs) { delta ->
+                    acc.append(delta)
+                    _chatMessages.value = _chatMessages.value.map {
+                        if (it.id == shadowId) it.copy(content = acc.toString()) else it
+                    }
+                }.onSuccess { full ->
+                    _chatMessages.value = _chatMessages.value.filter { it.id != shadowId }
+                    dao.insertChat(
+                        com.samge.bitrans.data.ChatMessage(
+                            sessionId = sessionId, ts = System.currentTimeMillis(),
+                            role = "assistant", content = full,
+                        )
+                    )
+                }.onFailure { e ->
+                    _chatMessages.value = _chatMessages.value.map {
+                        if (it.id == shadowId) it.copy(content = "总结失败：${e.message}") else it
+                    }
+                }
+            } finally {
+                _chatStreaming.value = false
+            }
         }
     }
 

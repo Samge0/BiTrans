@@ -22,6 +22,16 @@ data class CaptionItem(
     val target: String,
 )
 
+/** Summary-chat message attached to a session (LLM conversation about it) */
+@Entity(tableName = "chat_messages")
+data class ChatMessage(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: Long,
+    val ts: Long,
+    val role: String,      // "user" | "assistant"
+    val content: String,
+)
+
 /** A listening session (created on stop; title editable) */
 @Entity(tableName = "sessions")
 data class Session(
@@ -51,9 +61,18 @@ interface CaptionDao {
 
     @Query("SELECT * FROM caption_items WHERE sessionId = :sid ORDER BY ts ASC")
     fun itemsFlow(sid: Long): Flow<List<CaptionItem>>
+
+    // ---- summary chat ----
+    @Insert suspend fun insertChat(m: ChatMessage): Long
+
+    @Query("DELETE FROM chat_messages WHERE sessionId = :sid")
+    suspend fun clearChat(sid: Long)
+
+    @Query("SELECT * FROM chat_messages WHERE sessionId = :sid ORDER BY ts ASC")
+    fun chatFlow(sid: Long): Flow<List<ChatMessage>>
 }
 
-@Database(entities = [Session::class, CaptionItem::class], version = 1, exportSchema = false)
+@Database(entities = [Session::class, CaptionItem::class, ChatMessage::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun captionDao(): CaptionDao
 
@@ -62,7 +81,13 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun get(ctx: Context): AppDatabase = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDatabase::class.java, "bistrans.db")
-                .fallbackToDestructiveMigration()
+                .addMigrations(
+                    androidx.room.migration.Migration(1, 2) {
+                        it.execSQL(
+                            "CREATE TABLE IF NOT EXISTS `chat_messages` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sessionId` INTEGER NOT NULL, `ts` INTEGER NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL)"
+                        )
+                    },
+                )
                 .build().also { inst = it }
         }
     }

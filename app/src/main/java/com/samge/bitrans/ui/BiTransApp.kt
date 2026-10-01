@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -456,6 +457,7 @@ private fun DownloadingPane(s: UiState.Downloading) {
 
 @Composable
 private fun CaptionCard(cap: com.samge.bitrans.data.Caption) {
+    val ctx = LocalContext.current
     Surface(
         shape = CardShape,
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -465,7 +467,19 @@ private fun CaptionCard(cap: com.samge.bitrans.data.Caption) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 LangChip(cap.langTag)
                 Spacer(Modifier.width(6.dp))
-                Text(cap.source, fontSize = 14.sp, lineHeight = 20.sp)
+                Text(cap.source, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
+                // one-tap copy: original + translation
+                IconButton(
+                    onClick = { copyCaption(ctx, cap.source, cap.target) },
+                    modifier = Modifier.size(26.dp),
+                ) {
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = "复制",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (cap.pending) {
                 Text("翻译中…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -480,6 +494,14 @@ private fun CaptionCard(cap: com.samge.bitrans.data.Caption) {
             }
         }
     }
+}
+
+/** Copy "source\ntarget" to clipboard with a toast. */
+private fun copyCaption(ctx: android.content.Context, source: String, target: String) {
+    val text = if (target.isBlank() || target == source) source else "$source\n$target"
+    val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    cm.setPrimaryClip(android.content.ClipData.newPlainText("BiTrans", text))
+    android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
 }
 
 @Composable
@@ -831,9 +853,14 @@ private fun HistoryPane(vm: MainViewModel) {
     val ctx = LocalContext.current
     val sessions by vm.sessions.collectAsState()
     var openSession by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
+    var showChat by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
 
     if (openSession != null) {
         val session = openSession!!
+        if (showChat != null) {
+            ChatPane(vm, session) { showChat = null }
+            return
+        }
         val items by vm.itemsOf(session.id).collectAsState(initial = emptyList())
         var renameDialog by remember { mutableStateOf(false) }
         var renameText by remember(session.id) { mutableStateOf(session.title) }
@@ -851,6 +878,16 @@ private fun HistoryPane(vm: MainViewModel) {
                 }
                 IconButton(onClick = { renameDialog = true }) {
                     Icon(Icons.Default.Settings, contentDescription = "重命名")
+                }
+                // one-tap AI summary (chat page)
+                PillButton(label = "一键总结", compact = true) {
+                    if (vm.llmConfigured()) {
+                        showChat = session
+                        vm.bindChat(session.id)
+                        vm.maybeAutoSummarize(session.id)
+                    } else {
+                        android.widget.Toast.makeText(ctx, "请先到设置页配置 LLM 引擎", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             if (renameDialog) {
@@ -884,7 +921,7 @@ private fun HistoryPane(vm: MainViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                     ) {
                         Column(Modifier.padding(10.dp)) {
-                            Row {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 LangChip(item.langTag)
                                 Spacer(Modifier.width(6.dp))
                                 Text(
@@ -892,7 +929,19 @@ private fun HistoryPane(vm: MainViewModel) {
                                         .format(java.util.Date(item.ts)),
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
                                 )
+                                IconButton(
+                                    onClick = { copyCaption(ctx, item.source, item.target) },
+                                    modifier = Modifier.size(26.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.ContentCopy,
+                                        contentDescription = "复制",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                             Text(item.source, fontSize = 14.sp, lineHeight = 20.sp)
                             if (item.target.isNotBlank()) {
@@ -947,6 +996,107 @@ private fun HistoryPane(vm: MainViewModel) {
                     modifier = Modifier.fillMaxWidth().padding(24.dp),
                 )
             }
+        }
+    }
+}
+
+// ---------------- Summary Chat ----------------
+
+@Composable
+private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session, onExit: () -> Unit) {
+    val ctx = LocalContext.current
+    val msgs by vm.chatMessages.collectAsState()
+    val streaming by vm.chatStreaming.collectAsState()
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(msgs.size, streaming) {
+        if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex)
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        // header
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onExit) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("AI 总结 · ${session.title}", fontSize = 13.sp, fontWeight = FontWeight(600), maxLines = 1)
+                Text(if (streaming) "生成中…" else "基于本次记录的对话", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = { vm.clearChat(session.id) }) {
+                Icon(Icons.Default.Delete, contentDescription = "清空会话", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+        // messages
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(msgs, key = { it.id }) { m ->
+                val mine = m.role == "user"
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(
+                            topStart = 12.dp, topEnd = 12.dp,
+                            bottomStart = if (mine) 12.dp else 2.dp,
+                            bottomEnd = if (mine) 2.dp else 12.dp,
+                        ),
+                        color = if (mine) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                    ) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text(
+                                m.content.ifBlank { if (streaming) "…" else "" },
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = if (mine) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (streaming && m.role == "assistant" && m == msgs.lastOrNull()) {
+                                Text("▍", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // input
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("继续提问…", fontSize = 13.sp) },
+                textStyle = MaterialTheme.typography.bodySmall,
+                shape = RoundedCornerShape(18.dp),
+                maxLines = 3,
+                enabled = !streaming,
+            )
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = {
+                    val text = input.trim()
+                    if (text.isNotEmpty()) {
+                        vm.sendChat(session.id, text)
+                        input = ""
+                    }
+                },
+                enabled = !streaming && input.isNotBlank(),
+                shape = PillShape,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) { Text("发送", fontSize = 13.sp) }
         }
     }
 }

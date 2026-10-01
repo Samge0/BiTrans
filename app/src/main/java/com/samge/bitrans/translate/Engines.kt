@@ -212,6 +212,75 @@ class LlmEngine(
         "zh" -> "Chinese"; "en" -> "English"; "ja" -> "Japanese"
         "ko" -> "Korean"; "yue" -> "Cantonese"; else -> code
     }
+
+    /**
+     * Streaming multi-turn chat (OpenAI-compatible SSE). [messages] carries the
+     * conversation; [onDelta] receives incremental text as it arrives. Returns
+     * the full assistant reply when complete.
+     */
+    fun chatStream(
+        messages: List<Pair<String, String>>, // (role, content)
+        onDelta: (String) -> Unit,
+    ): Result<String> = runCatching {
+        val url = java.net.URI(trimSlash(baseUrl) + "/v1/chat/completions").toURL()
+        val conn = url.openConnection() as java.net.HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 10000
+            conn.readTimeout = 120000
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "text/event-stream")
+            if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            val body = org.json.JSONObject().apply {
+                put("model", model)
+                put("messages", org.json.JSONArray().apply {
+                    messages.forEach { (role, content) ->
+                        put(org.json.JSONObject().apply {
+                            put("role", role)
+                            put("content", content)
+                        })
+                    }
+                })
+                put("stream", true)
+                put("temperature", 0.4)
+                if (noThinkMode != "none") {
+                    if (noThinkMode == "all" || noThinkMode == "quiet") {
+                        put("chat_template_kwargs", org.json.JSONObject().put("enable_thinking", false))
+                    }
+                }
+            }
+            conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val err = conn.errorStream?.bufferedReader()?.readText() ?: ""
+                throw java.io.IOException("LLM HTTP $code ${err.take(200)}")
+            }
+            val full = StringBuilder()
+            conn.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (!line.startsWith("data:")) continue
+                    val payload = line.removePrefix("data:").trim()
+                    if (payload == "[DONE]") break
+                    if (payload.isEmpty()) continue
+                    runCatching {
+                        val delta = org.json.JSONObject(payload)
+                            .getJSONArray("choices")
+                            .getJSONObject(0)
+                            .optJSONObject("delta")
+                            ?.optString("content") ?: ""
+                        if (delta.isNotEmpty()) {
+                            full.append(delta)
+                            onDelta(delta)
+                        }
+                    }
+                }
+            }
+            full.toString()
+        } finally {
+            conn.disconnect()
+        }
+    }
 }
 
 /** Naive JSON field extraction without deps (LLM/LT responses are flat enough for this) */
