@@ -242,7 +242,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
                 onPartialLevel = { _level.value = it },
                 onSilenced = {
-                    _status.value = "麦克风被占用（语音房开麦时系统会静音后台应用）。请在系统设置里允许 BiTrans 后台使用麦克风，或尝试将 Hilokal 的麦克风独占关闭"
+                    _status.value = "麦克风被前台应用占用（你开了语音房麦克风）。语言房正确姿势：手机外放 + 听对方时关自己的麦，BiTrans 会自动恢复翻译对方的声音"
                 },
             ).also {
                 it.start()
