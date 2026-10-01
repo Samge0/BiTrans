@@ -11,6 +11,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -139,19 +140,21 @@ fun BiTransApp(vm: MainViewModel) {
         else permLauncher.launch(need.toTypedArray())
     }
 
-    androidx.activity.compose.BackHandler(enabled = showSettings || showHistory) {
+    androidx.activity.compose.BackHandler(enabled = showSettings || (showHistory && historySubPage == null)) {
         if (showSettings) exitSettingsSavingEdits()
-        if (showHistory) { showHistory = false; historySubPage = null }
+        else if (showHistory) showHistory = false
     }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            CenterAlignedTopAppBar(
+            if (showHistory && historySubPage != null) {
+                // sub-page owns its full header (title + back) — no outer bar
+            } else CenterAlignedTopAppBar(
                 title = {
                     Text(
                         when {
-                            showHistory -> if (historySubPage == null) "历史记录" else " "
+                            showHistory -> "历史记录"
                             showSettings -> "设置"
                             else -> "BiTrans"
                         },
@@ -863,6 +866,16 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
     val sessions by vm.sessions.collectAsState()
     var openSession by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
     var showChat by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
+    // no outer top bar on sub-pages: compensate with status-bar inset
+    val statusBarInset = WindowInsets.statusBars
+        .asPaddingValues()
+        .calculateTopPadding()
+    val topPad = if (openSession == null) statusBarInset + 48.dp else statusBarInset + 8.dp
+
+    // sub-page back handling: pops detail->list, chat->detail (inner wins over outer)
+    androidx.activity.compose.BackHandler(enabled = openSession != null) {
+        if (showChat != null) showChat = null else openSession = null
+    }
 
     LaunchedEffect(openSession?.id, showChat?.id) {
         onSubPage(when {
@@ -881,7 +894,7 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
         val items by vm.itemsOf(session.id).collectAsState(initial = emptyList())
         var renameDialog by remember { mutableStateOf(false) }
         var renameText by remember(session.id) { mutableStateOf(session.title) }
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(top = statusBarInset)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -977,7 +990,7 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
         return
     }
 
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(top = topPad)) {
         items(sessions, key = { it.id }) { s ->
             Surface(
                 shape = CardShape,
@@ -1022,13 +1035,60 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
 @Composable
 private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session, onExit: () -> Unit) {
     val ctx = LocalContext.current
-    val msgs by vm.chatMessages.collectAsState()
     val streaming by vm.chatStreaming.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(msgs.size, streaming) {
-        if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex)
+    // ---- typewriter reveal: network deltas land in fullText; UI reveals it at
+    // a fixed pace. Deterministic regardless of transport batching. ----
+    var fullText by remember { mutableStateOf("") }
+    var shownChars by remember { mutableStateOf(0) }
+    var streamingMsg by remember { mutableStateOf<String?>(null) } // provisional streaming msg
+    val persisted by vm.chatMessages.collectAsState()
+
+    // provisional streaming entry lives in _chatMessages (id = -777), NOT in Room
+    val provisional = persisted.lastOrNull { it.id == -777L }
+    LaunchedEffect(streaming) {
+        if (streaming) {
+            fullText = ""
+            shownChars = 0
+            streamingMsg = "…"
+        }
+    }
+    // ingest provisional content as it grows
+    LaunchedEffect(provisional?.content) {
+        val c = provisional?.content ?: return@LaunchedEffect
+        if (streaming && c.length > fullText.length) fullText = c
+    }
+    // steady reveal loop
+    LaunchedEffect(streaming, fullText) {
+        if (!streaming) {
+            shownChars = 0
+            streamingMsg = null
+            return@LaunchedEffect
+        }
+        while (streaming && shownChars < fullText.length) {
+            shownChars = (shownChars + 3).coerceAtMost(fullText.length)
+            kotlinx.coroutines.delay(16)
+        }
+    }
+
+    // display list = persisted history (minus provisional) + typewriter line
+    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, streaming, shownChars, fullText) {
+        val done = persisted.filter { it.id != -777L }
+        done + (streamingMsg?.let {
+            listOf(
+                com.samge.bitrans.data.ChatMessage(
+                    id = Long.MAX_VALUE, sessionId = session.id,
+                    ts = 0, role = "assistant",
+                    content = fullText.take(shownChars),
+                )
+            )
+        } ?: emptyList())
+    }
+
+    LaunchedEffect(msgs.size, msgs.lastOrNull()?.content?.length) {
+        if (msgs.isNotEmpty()) listState.scrollToItem(msgs.lastIndex)
     }
 
     Column(Modifier.fillMaxSize()) {

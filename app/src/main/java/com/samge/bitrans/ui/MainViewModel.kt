@@ -552,20 +552,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val msgs = mutableListOf("system" to "你是一个对话记录分析助手。用户会提供一段语音翻译记录（原文|译文 每行一条），请基于它回答问题或做总结。回答使用中文。")
                 msgs.add("user" to "对话记录如下：\n${transcriptContext(sessionId)}")
                 prior.forEach { msgs.add(it.role to it.content) }
-                // streaming reply appended progressively to a shadow message
-                val shadowId = System.currentTimeMillis()
+                // stream deltas accumulate in a single provisional Flow entry;
+                // the UI runs its own typewriter reveal on top of this content.
+                val provisionalId = -777L
+                val acc = StringBuilder()
                 _chatMessages.value = _chatMessages.value + com.samge.bitrans.data.ChatMessage(
-                    id = shadowId, sessionId = sessionId, ts = System.currentTimeMillis(),
+                    id = provisionalId, sessionId = sessionId, ts = System.currentTimeMillis(),
                     role = "assistant", content = "",
                 )
-                val acc = StringBuilder()
                 engine.chatStream(msgs) { delta ->
                     acc.append(delta)
                     _chatMessages.value = _chatMessages.value.map {
-                        if (it.id == shadowId) it.copy(content = acc.toString()) else it
+                        if (it.id == provisionalId) it.copy(content = acc.toString()) else it
                     }
                 }.onSuccess { full ->
-                    _chatMessages.value = _chatMessages.value.filter { it.id != shadowId }
+                    // drop provisional; Room Flow will deliver the final persisted row
+                    _chatMessages.value = _chatMessages.value.filter { it.id != provisionalId }
                     dao.insertChat(
                         com.samge.bitrans.data.ChatMessage(
                             sessionId = sessionId, ts = System.currentTimeMillis(),
@@ -574,7 +576,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }.onFailure { e ->
                     _chatMessages.value = _chatMessages.value.map {
-                        if (it.id == shadowId) it.copy(content = "总结失败：${e.message}") else it
+                        if (it.id == provisionalId) it.copy(content = "总结失败：${e.message}") else it
                     }
                 }
             } finally {
