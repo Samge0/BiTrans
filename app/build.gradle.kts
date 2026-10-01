@@ -25,8 +25,8 @@ android {
         applicationId = "com.samge.bitrans"
         minSdk = 24
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.4.0"
+        versionCode = 18
+        versionName = "1.4.1"
         ndk {
             // physical arm64 phone only (Xiaomi HyperOS target); halves transfer size
             abiFilters += listOf("arm64-v8a")
@@ -95,6 +95,10 @@ dependencies {
 
     // ML Kit on-device translation (free, no billing; falls back to remote engines when absent)
     implementation("com.google.mlkit:translate:17.0.3")
+
+    testImplementation("junit:junit:4.13.2")
+    // real org.json for unit tests (android.jar stubs return defaults silently)
+    testImplementation("org.json:json:20240303")
 
     // Room: caption history persistence
     val room = "2.6.1"

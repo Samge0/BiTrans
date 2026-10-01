@@ -257,8 +257,13 @@ class LlmEngine(
                 throw java.io.IOException("LLM HTTP $code ${err.take(200)}")
             }
             val full = StringBuilder()
-            conn.inputStream.bufferedReader().useLines { lines ->
-                for (line in lines) {
+            // CRITICAL: unbuffered line reading — a default BufferedReader buffers
+            // 8KB internally, batching SSE events until the buffer fills, which
+            // turns "streaming" into "one giant dump after a long wait".
+            val reader = java.io.BufferedReader(java.io.InputStreamReader(conn.inputStream, Charsets.UTF_8), 1)
+            reader.use {
+                while (true) {
+                    val line = it.readLine() ?: break
                     if (!line.startsWith("data:")) continue
                     val payload = line.removePrefix("data:").trim()
                     if (payload == "[DONE]") break

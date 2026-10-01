@@ -37,6 +37,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.samge.bitrans.translate.TargetLang
@@ -1054,13 +1056,14 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
                         modifier = Modifier.widthIn(max = 300.dp),
                     ) {
                         Column(Modifier.padding(10.dp)) {
-                            Text(
-                                m.content.ifBlank { if (streaming) "…" else "" },
-                                fontSize = 13.sp,
-                                lineHeight = 19.sp,
-                                color = if (mine) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurface,
-                            )
+                            val body = m.content.ifBlank { if (streaming) "…" else "" }
+                            val contentColor = if (mine) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurface
+                            if (mine) {
+                                Text(body, fontSize = 13.sp, lineHeight = 19.sp, color = contentColor)
+                            } else {
+                                MarkdownBody(body, contentColor)
+                            }
                             if (streaming && m.role == "assistant" && m == msgs.lastOrNull()) {
                                 Text("▍", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             }
@@ -1099,4 +1102,94 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
             ) { Text("发送", fontSize = 13.sp) }
         }
     }
+}
+
+/** Renders MiniMarkdown nodes in a chat bubble. */
+@Composable
+private fun MarkdownBody(src: String, baseColor: androidx.compose.ui.graphics.Color) {
+    val nodes = remember(src) { MiniMarkdown.parse(src) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        nodes.forEach { node ->
+            when (node) {
+                is MdNode.Heading -> Text(
+                    node.text,
+                    fontSize = when (node.level.coerceIn(1, 3)) {
+                        1 -> 16.sp; 2 -> 15.sp; else -> 14.sp
+                    },
+                    fontWeight = androidx.compose.ui.text.font.FontWeight(600),
+                    color = baseColor,
+                )
+                is MdNode.Paragraph -> SpanText(node.spans, 13.sp, baseColor)
+                is MdNode.Bullet -> Row {
+                    Text(
+                        if (node.ordered) "${node.index}. " else "• ",
+                        fontSize = 13.sp,
+                        color = baseColor,
+                    )
+                    SpanText(node.spans, 13.sp, baseColor, Modifier.weight(1f))
+                }
+                is MdNode.Quote -> Surface(
+                    color = androidx.compose.ui.graphics.Color(baseColor.red, baseColor.green, baseColor.blue, 0.08f),
+                    shape = RoundedCornerShape(6.dp),
+                ) {
+                    SpanText(node.spans, 13.sp, baseColor, Modifier.padding(8.dp))
+                }
+                is MdNode.Code -> Surface(
+                    color = androidx.compose.ui.graphics.Color(baseColor.red, baseColor.green, baseColor.blue, 0.10f),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(
+                        node.text,
+                        fontSize = 12.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        color = baseColor,
+                        modifier = Modifier.padding(8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpanText(
+    spans: List<MdSpan>,
+    size: androidx.compose.ui.unit.TextUnit,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = androidx.compose.ui.text.buildAnnotatedString {
+            spans.forEach { sp ->
+                when (sp) {
+                    is MdSpan.Plain -> withStyle(
+                        androidx.compose.ui.text.SpanStyle(fontSize = size, color = color)
+                    ) { append(sp.text) }
+                    is MdSpan.Bold -> withStyle(
+                        androidx.compose.ui.text.SpanStyle(
+                            fontSize = size, color = color,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        )
+                    ) { append(sp.text) }
+                    is MdSpan.Italic -> withStyle(
+                        androidx.compose.ui.text.SpanStyle(
+                            fontSize = size, color = color,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                        )
+                    ) { append(sp.text) }
+                    is MdSpan.Code -> withStyle(
+                        androidx.compose.ui.text.SpanStyle(
+                            fontSize = size,
+                            color = color,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            background = androidx.compose.ui.graphics.Color(
+                                color.red, color.green, color.blue, 0.12f,
+                            ),
+                        )
+                    ) { append(sp.text) }
+                }
+            }
+        },
+        modifier = modifier,
+    )
 }
