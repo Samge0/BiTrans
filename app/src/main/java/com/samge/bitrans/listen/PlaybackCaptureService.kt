@@ -165,49 +165,36 @@ class PlaybackCaptureService : Service() {
 
         /**
          * Reader for MicListener's externalRecorder: reads playback audio and
-         * resamples to 16k (nearest-sample with phase accumulator — exact ratio
-         * for 48k=3:1 and 44.1k=2.75625:1), block-aligned to the window.
+         * resamples to 16k (position-accumulator decimation; exact for 48k=3:1,
+         * fractional for 44.1k). CONSTANT LATENCY: reads only when the raw
+         * buffer is exhausted — the previous version re-read while thousands of
+         * samples were still pending, growing the backlog (and delay) unboundedly.
          */
         fun reader16k(): (ShortArray, Int) -> Int {
             val raw = ShortArray(4096)
-            val pending = ArrayDeque<Short>()  // input samples not yet consumed
-            var carry = 0.0                    // fractional source-sample credit
+            var rawLen = 0
+            var rawPos = 0
+            var frac = 0.0
             return lambda@{ pcmBuf, window ->
                 val rec = captureRecord.get()
                 if (rec == null) {
                     -1
                 } else {
-                    val srcPerDst = captureRateHz.get().toDouble() / 16000.0
-                    var outIdx = 0
-                    // 1) drain pending input samples, emitting output when enough credit
-                    while (outIdx < window && pending.isNotEmpty()) {
-                        var need = srcPerDst + carry
-                        while (need >= 1.0 && pending.isNotEmpty()) {
-                            pending.removeFirst()
-                            need -= 1.0
+                    val step = captureRateHz.get() / 16000.0
+                    var out = 0
+                    while (out < window) {
+                        if (rawPos >= rawLen) {
+                            rawLen = rec.read(raw, 0, raw.size)
+                            rawPos = 0
+                            if (rawLen <= 0) break
                         }
-                        carry = need
-                        if (pending.isNotEmpty()) {
-                            pcmBuf[outIdx++] = pending.first()
-                        }
+                        pcmBuf[out++] = raw[rawPos]
+                        val adv = step + frac
+                        val intAdv = adv.toInt()
+                        frac = adv - intAdv
+                        rawPos += intAdv
                     }
-                    // 2) pull fresh audio and repeat
-                    while (outIdx < window) {
-                        val n = rec.read(raw, 0, raw.size)
-                        if (n <= 0) break
-                        var i = 0
-                        while (i < n) pending.addLast(raw[i++])
-                        var need = srcPerDst + carry
-                        while (need >= 1.0 && pending.isNotEmpty()) {
-                            pending.removeFirst()
-                            need -= 1.0
-                        }
-                        carry = need
-                        if (pending.isNotEmpty()) {
-                            pcmBuf[outIdx++] = pending.first()
-                        } else break
-                    }
-                    outIdx
+                    out
                 }
             }
         }
