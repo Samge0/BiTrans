@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -39,5 +40,13 @@
             android:name=".overlay.OverlayService"
             android:exported="false"
             android:stopWithTask="false" />
+
+        <!-- Playback (reverse) capture: MediaProjection-based capture of audio
+             played by OTHER apps (voice-room remote speaker), immune to the
+             concurrent-capture mic silencing. -->
+        <service
+            android:name=".listen.PlaybackCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
     </application>
 </manifest>

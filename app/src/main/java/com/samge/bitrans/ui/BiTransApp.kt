@@ -86,8 +86,45 @@ fun BiTransApp(vm: MainViewModel) {
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
         if (grants[Manifest.permission.RECORD_AUDIO] == true) vm.toggleListening()
     }
+    // MediaProjection consent for playback (reverse) capture
+    val projectionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val svc = android.content.Intent(ctx, com.samge.bitrans.listen.PlaybackCaptureService::class.java)
+                .putExtra(
+                    com.samge.bitrans.listen.PlaybackCaptureService.EXTRA_RESULT_CODE,
+                    result.resultCode,
+                )
+                .putExtra(
+                    com.samge.bitrans.listen.PlaybackCaptureService.EXTRA_RESULT_DATA,
+                    result.data,
+                )
+            runCatching { ctx.startForegroundService(svc) }
+            // give the service a beat to build the capture AudioRecord
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                vm.startListeningWithPlaybackCapture()
+            }, 600)
+        }
+    }
+
+    val captureMode by vm.captureMode.collectAsState()
 
     fun requestAndToggle() {
+        if (vm.listening.value) {
+            vm.toggleListening()
+            return
+        }
+        if (captureMode == "playback") {
+            if (android.os.Build.VERSION.SDK_INT < 29) {
+                android.widget.Toast.makeText(ctx, "反向采集需要 Android 10+", android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+            val mpm = ctx.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
+                as android.media.projection.MediaProjectionManager
+            projectionLauncher.launch(mpm.createScreenCaptureIntent())
+            return
+        }
         val need = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (android.os.Build.VERSION.SDK_INT >= 33) need.add(Manifest.permission.POST_NOTIFICATIONS)
         val granted = need.all {
@@ -170,7 +207,9 @@ fun BiTransApp(vm: MainViewModel) {
                     showHistory -> HistoryPane(vm)
                     else -> MainPane(
                         vm, captions, settings, status, level, listening,
+                        captureMode = captureMode,
                         onToggle = { requestAndToggle() },
+                        onCaptureMode = { vm.setCaptureMode(it) },
                     )
                 }
             }
@@ -186,7 +225,9 @@ private fun MainPane(
     status: String,
     level: Float,
     listening: Boolean,
+    captureMode: String,
     onToggle: () -> Unit,
+    onCaptureMode: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         TranscriptList(
@@ -194,6 +235,27 @@ private fun MainPane(
             autoScroll = settings.autoScroll,
             modifier = Modifier.weight(1f),
         )
+        // capture-source selector (mic vs reverse playback capture)
+        if (!listening) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilterChip(
+                    selected = captureMode == "mic",
+                    onClick = { onCaptureMode("mic") },
+                    label = { Text("麦克风", fontSize = 12.sp) },
+                    shape = PillShape,
+                )
+                FilterChip(
+                    selected = captureMode == "playback",
+                    onClick = { onCaptureMode("playback") },
+                    label = { Text("手机播放声(语音房)", fontSize = 12.sp) },
+                    shape = PillShape,
+                )
+            }
+        }
         // #2: status row and auto-scroll toggle share one row, spread out
         StatusAndScrollRow(status, level, listening, settings.autoScroll) { vm.setAutoScroll(it) }
         Spacer(Modifier.height(6.dp))

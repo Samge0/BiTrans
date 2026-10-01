@@ -186,6 +186,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** capture mode: "mic" (default) or "playback" (reverse capture of phone audio) */
+    private val _captureMode = MutableStateFlow(
+        runCatching { TranslateConfig.captureMode(getApplication()) }.getOrDefault("mic")
+    )
+    val captureMode: StateFlow<String> = _captureMode
+
+    fun setCaptureMode(mode: String) {
+        TranslateConfig.setCaptureMode(ctx(), mode)
+        _captureMode.value = mode
+    }
+
+    /** Start listening using the PLAYBACK (reverse) capture pipeline. Called after
+     *  the MediaProjection consent result arrives. */
+    fun startListeningWithPlaybackCapture() {
+        if (_listening.value) return
+        try { com.samge.bitrans.listen.ListenService.start(ctx()) } catch (_: Exception) {}
+        sessionStartAt = System.currentTimeMillis()
+        com.samge.bitrans.overlay.OverlayService.clear()
+        mic = MicListener(
+            context = ctx(),
+            onSegment = { samples, _ -> handleSegment(samples) },
+            onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
+            onPartialLevel = { _level.value = it },
+            onSilenced = {
+                _status.value = "未采集到播放声音：目标应用可能把音频标记为通话类（系统不允许捕获），或当前没有声音在播放"
+            },
+            externalRecorder = com.samge.bitrans.listen.PlaybackCaptureService.reader16k(),
+        ).also {
+            it.start()
+            _listening.value = true
+            _status.value = "反向采集模式：翻译手机播放的声音"
+        }
+    }
+
     fun toggleListening() {
         if (_listening.value) {
             mic?.stop()
@@ -193,6 +227,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _listening.value = false
             _status.value = ""
             com.samge.bitrans.listen.ListenService.stop(ctx())
+            if (_captureMode.value == "playback") {
+                com.samge.bitrans.listen.PlaybackCaptureService.stop(ctx())
+            }
             saveSessionToDb()
         } else {
             // keep process alive while user switches to Hilokal

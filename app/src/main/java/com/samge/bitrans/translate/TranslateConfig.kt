@@ -66,6 +66,10 @@ object TranslateConfig {
     fun translationEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("translate_on", true)
     fun setTranslationEnabled(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("translate_on", v).apply()
 
+    /** capture source: "mic" or "playback" (reverse capture of phone audio) */
+    fun captureMode(ctx: Context): String = prefs(ctx).getString("capture_mode", "mic") ?: "mic"
+    fun setCaptureMode(ctx: Context, v: String) = prefs(ctx).edit().putString("capture_mode", v).apply()
+
     fun currentEngine(ctx: Context): TranslateEngine = when (engineKind(ctx)) {
         "libre" -> LibreTranslateEngine(ltEndpoint(ctx), ltApiKey(ctx))
         "llm" -> LlmEngine(llmBaseUrl(ctx), llmModel(ctx), llmApiKey(ctx), llmNoThinkMode(ctx))
