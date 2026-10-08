@@ -41,6 +41,12 @@ data class Session(
     val endedAt: Long,
 )
 
+/** row shape for the group-count query */
+data class SessionCount(
+    val sessionId: Long,
+    @androidx.room.ColumnInfo(name = "cnt") val count: Int,
+)
+
 @Dao
 interface CaptionDao {
     @Insert suspend fun insertSession(s: Session): Long
@@ -58,6 +64,9 @@ interface CaptionDao {
 
     @Query("SELECT * FROM sessions ORDER BY endedAt DESC")
     fun sessionsFlow(): Flow<List<Session>>
+
+    @Query("SELECT sessionId, COUNT(*) as cnt FROM caption_items GROUP BY sessionId")
+    fun countsFlow(): Flow<List<SessionCount>>
 
     @Query("SELECT * FROM caption_items WHERE sessionId = :sid ORDER BY ts ASC")
     fun itemsFlow(sid: Long): Flow<List<CaptionItem>>

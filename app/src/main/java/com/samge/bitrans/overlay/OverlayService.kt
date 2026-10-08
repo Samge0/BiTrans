@@ -85,6 +85,44 @@ class OverlayService : Service() {
         var startLpX = 0; var startLpY = 0
         var moved = false
         var collapsed = false
+        var lastExpandedX = 0  // where to restore after un-collapsing
+        // collapsed state draws a small半圆 tab hugging the NEAREST screen edge
+        val tabView = android.widget.TextView(this).apply {
+            text = "▶"
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 12f
+            gravity = android.view.Gravity.CENTER
+            val bg = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(android.graphics.Color.argb(200, 0x27, 0x27, 0x29))
+            }
+            background = bg
+        }
+        fun applyCollapsed(c: Boolean) {
+            collapsed = c
+            if (c) {
+                // remember current spot & swap content for the mini tab
+                lastExpandedX = lp.x
+                container.removeAllViews()
+                container.addView(tabView)
+                container.setPadding(0, 0, 0, 0)
+                container.background = null
+                tabView.layoutParams = android.view.ViewGroup.LayoutParams(dp(34), dp(34))
+                // snap to the nearest horizontal edge (x is offset from LEFT)
+                val dm = resources.displayMetrics
+                val centerX = lp.x + dp(60)
+                lp.x = if (centerX < dm.widthPixels / 2) 0 else dm.widthPixels - dp(34)
+                lp.width = dp(34)
+            } else {
+                container.removeAllViews()
+                container.addView(rowsView)
+                container.setPadding(dp(14), dp(10), dp(14), dp(10))
+                lp.x = lastExpandedX
+                lp.width = WindowManager.LayoutParams.WRAP_CONTENT
+                applyStyle()  // restores the rounded background & width
+            }
+            runCatching { wm?.updateViewLayout(container, lp) }
+        }
         container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -102,11 +140,8 @@ class OverlayService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!moved) {
-                        collapsed = !collapsed
-                        rowsView.visibility = if (collapsed) View.GONE else View.VISIBLE
-                        container.alpha = if (collapsed) 0.45f else 1f
-                    }
+                    if (!moved) applyCollapsed(!collapsed)
+                    else if (collapsed) applyCollapsed(false) // dragging a tab re-expands
                     true
                 }
                 else -> false

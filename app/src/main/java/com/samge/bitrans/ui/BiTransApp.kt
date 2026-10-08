@@ -280,6 +280,21 @@ private fun MainPane(
             onToggleScroll = { vm.setAutoScroll(it) },
             onCaptureMode = onCaptureMode,
         )
+        // stop-with-content -> ask whether to save to history
+        val askSave by vm.askSaveSession.collectAsState()
+        if (askSave) {
+            AlertDialog(
+                onDismissRequest = { vm.discardSession() },
+                title = { Text("保存到历史记录？", fontSize = 15.sp) },
+                text = { Text("本次共 ${captions.size} 段字幕。保存后可在历史中查看，并自动生成摘要标题。", fontSize = 13.sp) },
+                confirmButton = {
+                    TextButton(onClick = { vm.confirmSaveSession() }) { Text("保存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { vm.discardSession() }) { Text("不保存") }
+                },
+            )
+        }
         Spacer(Modifier.height(6.dp))
         ControlButtons(
             listening = listening,
@@ -872,7 +887,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "GitHub Releases",
+                "github.com/Samge0/BiTrans",
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.primary,
                 textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
@@ -931,6 +946,8 @@ sealed interface HistoryPage {
 @Composable
 private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.Session) -> Unit) {
     val sessions by vm.sessions.collectAsState()
+    // caption counts per session (for "xx 段" in list rows)
+    val countsBySession by vm.sessionCaptionCounts.collectAsState()
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         items(sessions, key = { it.id }) { s ->
             Surface(
@@ -947,7 +964,8 @@ private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.S
                         Text(s.title, fontSize = 14.sp, fontWeight = FontWeight(500))
                         Text(
                             java.text.SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-                                .format(java.util.Date(s.startedAt)) + " · 点击查看",
+                                .format(java.util.Date(s.startedAt)) +
+                                " · " + (countsBySession[s.id]?.let { "${it}段" } ?: "…"),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -1029,7 +1047,15 @@ private fun SessionDetailPage(
                     }) { Text("确定") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { renameDialog = false }) { Text("取消") }
+                    Row {
+                        if (vm.llmConfigured()) {
+                            TextButton(onClick = {
+                                vm.generateTitleWithLlm(session.id)
+                                renameDialog = false
+                            }) { Text("AI 起名") }
+                        }
+                        TextButton(onClick = { renameDialog = false }) { Text("取消") }
+                    }
                 },
             )
         }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
@@ -118,6 +119,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _settings = MutableStateFlow(loadSettings())
     val settings: StateFlow<AppSettings> = _settings
+
+    /** one-shot: true when a stopped session has content awaiting a save decision */
+    private val _askSaveSession = MutableStateFlow(false)
+    val askSaveSession: StateFlow<Boolean> = _askSaveSession
+
+    fun confirmSaveSession() {
+        _askSaveSession.value = false
+        saveSessionToDb()
+    }
+
+    fun discardSession() {
+        _askSaveSession.value = false
+        _captions.value = emptyList()
+    }
 
     private var mic: MicListener? = null
     private var tts: TextToSpeech? = null
@@ -232,7 +247,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (_captureMode.value == "playback") {
                 com.samge.bitrans.listen.PlaybackCaptureService.stop(ctx())
             }
-            saveSessionToDb()
+            // ask before saving (UI shows a confirm dialog when there is content)
+            _askSaveSession.value = _captions.value.isNotEmpty()
         } else {
             // keep process alive while user switches to Hilokal
             try { com.samge.bitrans.listen.ListenService.start(ctx()) } catch (_: Exception) {}
@@ -262,12 +278,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val caps = _captions.value
         if (caps.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            var saved = false
+            var sid = -1L
             try {
                 val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
                 val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                 val start = sessionStartAt.takeIf { it > 0 } ?: caps.last().ts
-                val sid = dao.insertSession(
+                sid = dao.insertSession(
                     com.samge.bitrans.data.Session(
                         title = fmt.format(java.util.Date(start)),
                         startedAt = start,
@@ -284,14 +300,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         target = c.target,
                     )
                 })
-                saved = true
             } catch (t: Throwable) {
                 Log.w("BiTrans", "saveSession failed", t)
             }
-            if (saved) {
+            if (sid > 0) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(getApplication(), "记录已保存到历史", Toast.LENGTH_SHORT).show()
                 }
+                // auto-generate a short title with the LLM when configured
+                if (llmConfigured()) generateTitleWithLlm(sid)
             }
         }
     }
@@ -476,6 +493,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         com.samge.bitrans.data.AppDatabase.get(getApplication()).captionDao()
             .sessionsFlow()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** caption count per session id (for list rows "xx段") */
+    val sessionCaptionCounts: StateFlow<Map<Long, Int>> =
+        com.samge.bitrans.data.AppDatabase.get(getApplication()).captionDao()
+            .countsFlow()
+            .map { rows: List<com.samge.bitrans.data.SessionCount> -> rows.associate { it.sessionId to it.count } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** Generate a short title for a session via the configured LLM (if any). */
+    fun generateTitleWithLlm(sessionId: Long) {
+        if (!llmConfigured()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val engine = TranslateConfig.currentEngine(ctx()) as com.samge.bitrans.translate.LlmEngine
+                val transcript = transcriptContext(sessionId)
+                if (transcript.isBlank()) return@launch
+                val msgs = listOf(
+                    "system" to "你起标题。只输出标题本身，不要引号不要解释，10字以内。",
+                    "user" to "为以下对话记录起一个简短中文标题：\n$transcript",
+                )
+                val title = engine.chatStream(msgs) {}.getOrDefault("")
+                    .trim().trim('"', '「', '」', ' ', '\n')
+                if (title.isNotBlank()) {
+                    com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
+                        .renameSession(sessionId, title.take(20))
+                }
+            } catch (_: Throwable) {
+            }
+        }
+    }
 
     fun itemsOf(sessionId: Long): Flow<List<com.samge.bitrans.data.CaptionItem>> =
         com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao().itemsFlow(sessionId)
