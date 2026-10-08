@@ -13,6 +13,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // i18n: resolve display language BEFORE first composition (no flash)
+        com.samge.bitrans.i18n.I18nState.update(this, com.samge.bitrans.translate.TranslateConfig.appLang(this))
         // restore the overlay on cold start if it was enabled in settings
         // (the service dies with the process; the user expects it back)
         if (TranslateConfig.overlayEnabled(this)) {

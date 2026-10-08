@@ -11,6 +11,8 @@ import com.samge.bitrans.core.MicListener
 import com.samge.bitrans.core.ModelStore
 import com.samge.bitrans.data.Caption
 import com.samge.bitrans.translate.TargetLang
+import com.samge.bitrans.i18n.I18n
+import com.samge.bitrans.i18n.format
 import com.samge.bitrans.translate.TranslateConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,11 +52,12 @@ data class AppSettings(
     val overlayLines: Int,
     val autoScroll: Boolean,
     val translateOn: Boolean,
+    val appLang: String = "system",
 ) {
     /** JSON for export — deliberately excludes apiKey (security) */
     fun toJson(): String = org.json.JSONObject().apply {
         put("app", "BiTrans")
-        put("schema", 1)
+        put("schema", 2)
         put("engineKind", engineKind)
         put("target", target)
         put("source", source)
@@ -70,6 +73,7 @@ data class AppSettings(
         put("overlayLines", overlayLines)
         put("autoScroll", autoScroll)
         put("translateOn", translateOn)
+        put("appLang", appLang)
     }.toString(2)
 
     companion object {
@@ -93,6 +97,7 @@ data class AppSettings(
                     overlayLines = o.optInt("overlayLines", 1),
                     autoScroll = o.optBoolean("autoScroll", true),
                     translateOn = o.optBoolean("translateOn", true),
+                    appLang = o.optString("appLang", "system"),
                 )
             } catch (_: Exception) {
                 null
@@ -228,13 +233,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
             onPartialLevel = { _level.value = it },
             onSilenced = {
-                _status.value = "未采集到播放声。请先用浏览器播放任意视频测试：若视频能出字幕而语音房不能，说明 Hilokal 的声音被标记为通话类（系统禁止捕获，需换方案）"
+                _status.value = I18n.t(ctx(), "未采集到播放声。请先用浏览器播放任意视频测试：若视频能出字幕而语音房不能，说明 Hilokal 的声音被标记为通话类（系统禁止捕获，需换方案）")
             },
             externalRecorder = com.samge.bitrans.listen.PlaybackCaptureService.reader16k(),
         ).also {
             it.start()
             _listening.value = true
-            _status.value = "反向采集模式：翻译手机播放的声音"
+            _status.value = I18n.t(ctx(), "反向采集模式：翻译手机播放的声音")
         }
     }
 
@@ -264,7 +269,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 onPartial = { samples -> handlePartial(samples, partialCounter.get()) },
                 onPartialLevel = { _level.value = it },
                 onSilenced = {
-                    _status.value = "麦克风被前台应用占用（你开了语音房麦克风）。语言房正确姿势：手机外放 + 听对方时关自己的麦，BiTrans 会自动恢复翻译对方的声音"
+                    _status.value = I18n.t(ctx(), "麦克风被前台应用占用（你开了语音房麦克风）。语言房正确姿势：手机外放 + 听对方时关自己的麦，BiTrans 会自动恢复翻译对方的声音")
                 },
             ).also {
                 it.start()
@@ -309,7 +314,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (sid > 0) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(getApplication(), "记录已保存到历史", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(getApplication(), I18n.t(getApplication(), "记录已保存到历史"), Toast.LENGTH_SHORT).show()
                 }
                 // auto-generate a short title with the LLM when configured
                 if (llmConfigured()) generateTitleWithLlm(sid)
@@ -437,7 +442,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (!isPartial && t.isNotBlank() && TranslateConfig.ttsEnabled(ctx())) speak(t, targetCode)
             }.onFailure { e ->
                 // stale-partial failures are noise; surface only final failures
-                if (!isPartial) _status.value = "翻译(${engine.name}): ${e.message}"
+                if (!isPartial) _status.value = format(I18n.t(ctx(), "翻译({0}): {1}"), I18n.t(ctx(), engine.name), e.message ?: "")
             }
         }
     }
@@ -445,15 +450,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Self-test the configured engine with a fixed probe sentence. */
     fun runEngineSelfTest() {
         viewModelScope.launch(Dispatchers.IO) {
-            _status.value = "引擎自测中…"
+            _status.value = I18n.t(ctx(), "引擎自测中…")
             val engine = TranslateConfig.currentEngine(ctx())
             val target = TranslateConfig.targetLang(ctx())
             val probe = "Hello world, this is a translation test."
             val r = engine.translate(probe, "en", target)
             r.onSuccess {
-                _status.value = "自测通过(${engine.name}): $it"
+                _status.value = format(I18n.t(ctx(), "自测通过({0}): {1}"), I18n.t(ctx(), engine.name), it)
             }.onFailure {
-                _status.value = "自测失败(${engine.name}): ${it.message?.take(80)}"
+                _status.value = format(I18n.t(ctx(), "自测失败({0}): {1}"), I18n.t(ctx(), engine.name), it.message?.take(80) ?: "")
             }
         }
     }
@@ -464,7 +469,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Caption(id = newCaptionId(), source = "今天天气不错，我们去公园散步吧。", langTag = "zh"),
             Caption(id = newCaptionId(), source = "The tribal chieftain called for the boy.", langTag = "en"),
         )
-        _status.value = "已注入测试句(不经过ASR)"
+        _status.value = I18n.t(ctx(), "已注入测试句(不经过ASR)")
         probes.forEach { cap ->
             _captions.value = listOf(cap) + _captions.value.take(199)
             translateCaption(cap)
@@ -546,7 +551,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun renameSession(id: Long, newTitle: String) {
         viewModelScope.launch(Dispatchers.IO) {
             com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
-                .renameSession(id, newTitle.trim().ifBlank { "未命名" })
+                .renameSession(id, newTitle.trim().ifBlank { I18n.t(ctx(), "未命名") })
         }
     }
 
@@ -620,7 +625,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
             val engine = TranslateConfig.currentEngine(ctx())
             if (engine !is com.samge.bitrans.translate.LlmEngine) {
-                _status.value = "请先在设置页配置 LLM 引擎后再使用总结"
+                _status.value = I18n.t(ctx(), "请先在设置页配置 LLM 引擎后再使用总结")
                 return@launch
             }
             _chatStreaming.value = true
@@ -660,7 +665,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     )
                 }.onFailure { e ->
-                    _chatLiveDelta.value = _chatLiveDelta.value?.copy(content = "总结失败：${e.message}")
+                    _chatLiveDelta.value = _chatLiveDelta.value?.copy(content = format(I18n.t(ctx(), "总结失败：{0}"), e.message ?: ""))
                 }
             } finally {
                 _chatStreaming.value = false
@@ -689,6 +694,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         TranslateConfig.setOverlayLines(ctx(), s.overlayLines)
         TranslateConfig.setAutoScroll(ctx(), s.autoScroll)
         TranslateConfig.setTranslationEnabled(ctx(), s.translateOn)
+        TranslateConfig.setAppLang(ctx(), s.appLang)
+        // live language switch: update the compose-observable snapshot so every
+        // t() call site recomposes immediately (no app restart needed)
+        com.samge.bitrans.i18n.I18nState.update(ctx(), s.appLang)
         _settings.value = loadSettings()
         // sync overlay lifecycle with the setting.
         // NOTE: start() is unconditional when enabled — even for an ALREADY-RUNNING
@@ -712,9 +721,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ctx.contentResolver.openOutputStream(uri)?.use { out ->
                     out.write(s.toJson().toByteArray(Charsets.UTF_8))
                 }
-                withContext(Dispatchers.Main) { _status.value = "配置已导出" }
+                withContext(Dispatchers.Main) { _status.value = I18n.t(ctx(), "配置已导出") }
             } catch (t: Throwable) {
-                withContext(Dispatchers.Main) { _status.value = "导出失败: ${t.message}" }
+                withContext(Dispatchers.Main) { _status.value = format(I18n.t(ctx(), "导出失败: {0}"), t.message ?: "") }
             }
         }
     }
@@ -755,6 +764,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         overlayLines = TranslateConfig.overlayLines(ctx()),
         autoScroll = TranslateConfig.autoScroll(ctx()),
         translateOn = TranslateConfig.translationEnabled(ctx()),
+        appLang = TranslateConfig.appLang(ctx()),
     )
 
     override fun onCleared() {

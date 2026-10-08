@@ -119,7 +119,7 @@ class PlaybackCaptureService : Service() {
         else 0
 
     private fun createChannel() {
-        val ch = NotificationChannel(CHANNEL, "回放采集", NotificationManager.IMPORTANCE_LOW)
+        val ch = NotificationChannel(CHANNEL, com.samge.bitrans.i18n.I18n.t(this, "回放采集"), NotificationManager.IMPORTANCE_LOW)
         ch.setShowBadge(false)
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
@@ -132,7 +132,7 @@ class PlaybackCaptureService : Service() {
         return androidx.core.app.NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("BiTrans")
-            .setContentText("正在采集手机播放的声音（反向翻译模式）")
+            .setContentText(com.samge.bitrans.i18n.I18n.t(this, "正在采集手机播放的声音（反向翻译模式）"))
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(pi)

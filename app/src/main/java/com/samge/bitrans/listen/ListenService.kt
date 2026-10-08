@@ -24,7 +24,7 @@ class ListenService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        startForeground(NOTIF_ID, buildNotification(this, "实时翻译监听中"))
+        startForeground(NOTIF_ID, buildNotification(this, com.samge.bitrans.i18n.I18n.t(this, "实时翻译监听中")))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -39,9 +39,9 @@ class ListenService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createChannel() {
-        val ch = NotificationChannel(CHANNEL, "实时翻译", NotificationManager.IMPORTANCE_LOW)
+        val ch = NotificationChannel(CHANNEL, com.samge.bitrans.i18n.I18n.t(this, "实时翻译"), NotificationManager.IMPORTANCE_LOW)
         ch.setShowBadge(false)
-        ch.description = "后台监听状态与字幕兜底显示"
+        ch.description = com.samge.bitrans.i18n.I18n.t(this, "后台监听状态与字幕兜底显示")
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
 

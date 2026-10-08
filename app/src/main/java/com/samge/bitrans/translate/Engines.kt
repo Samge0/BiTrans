@@ -35,7 +35,7 @@ interface TranslateEngine {
 }
 
 class MlKitEngine(private val context: Context) : TranslateEngine {
-    override val name = "MLKit(离线)"
+    override val name = "MLKit(离线)"  // display key — translated via t() at usage sites
 
     override suspend fun translate(text: String, from: String, to: String): Result<String> {
         return try {

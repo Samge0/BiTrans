@@ -70,6 +70,10 @@ object TranslateConfig {
     fun captureMode(ctx: Context): String = prefs(ctx).getString("capture_mode", "mic") ?: "mic"
     fun setCaptureMode(ctx: Context, v: String) = prefs(ctx).edit().putString("capture_mode", v).apply()
 
+    /** app display language: "system" or a concrete code (zh/en/ja/ko/zh-TW) */
+    fun appLang(ctx: Context): String = prefs(ctx).getString("app_lang", "system") ?: "system"
+    fun setAppLang(ctx: Context, v: String) = prefs(ctx).edit().putString("app_lang", v).apply()
+
     fun currentEngine(ctx: Context): TranslateEngine = when (engineKind(ctx)) {
         "libre" -> LibreTranslateEngine(ltEndpoint(ctx), ltApiKey(ctx))
         "llm" -> LlmEngine(llmBaseUrl(ctx), llmModel(ctx), llmApiKey(ctx), llmNoThinkMode(ctx))

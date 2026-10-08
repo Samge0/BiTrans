@@ -45,6 +45,11 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.samge.bitrans.i18n.AppLang
+import com.samge.bitrans.i18n.I18n
+import com.samge.bitrans.i18n.I18nState
+import com.samge.bitrans.i18n.format
+import com.samge.bitrans.i18n.t
 import com.samge.bitrans.translate.TargetLang
 import java.util.Locale
 
@@ -75,12 +80,31 @@ private fun PillButton(
  * title, left-aligned message, right-aligned text buttons (confirm = blue,
  * destructive = red). Replaces stock M3 dialogs everywhere.
  */
+/** Language-aware "yyyy年M月d日 HH:mm" date (recomposes on language change). */
+@Composable
+private fun dateText(epochMs: Long): String {
+    val lang = I18nState.dictLang
+    val pattern = when (lang) {
+        com.samge.bitrans.i18n.DictLang.ZH, com.samge.bitrans.i18n.DictLang.ZH_TW -> "yyyy年M月d日 HH:mm"
+        com.samge.bitrans.i18n.DictLang.JA -> "yyyy年M月d日 HH:mm"
+        else -> "MMM d, yyyy HH:mm"
+    }
+    val locale = when (lang) {
+        com.samge.bitrans.i18n.DictLang.ZH -> Locale.CHINA
+        com.samge.bitrans.i18n.DictLang.ZH_TW -> Locale.TAIWAN
+        com.samge.bitrans.i18n.DictLang.JA -> Locale.JAPAN
+        com.samge.bitrans.i18n.DictLang.KO -> Locale.KOREA
+        else -> Locale.ENGLISH
+    }
+    return java.text.SimpleDateFormat(pattern, locale).format(java.util.Date(epochMs))
+}
+
 @Composable
 fun AppleDialog(
     onDismiss: () -> Unit,
     title: String,
     message: String? = null,
-    confirmText: String = "确定",
+    confirmText: String = "确定",  // resolved via t() at call sites
     confirmColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
     onConfirm: () -> Unit,
     dismissText: String? = "取消",
@@ -193,7 +217,7 @@ fun BiTransApp(vm: MainViewModel) {
         }
         if (captureMode == "playback") {
             if (android.os.Build.VERSION.SDK_INT < 29) {
-                android.widget.Toast.makeText(ctx, "反向采集需要 Android 10+", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, I18n.t(ctx, "反向采集需要 Android 10+"), android.widget.Toast.LENGTH_SHORT).show()
                 return
             }
             val mpm = ctx.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
@@ -240,8 +264,8 @@ fun BiTransApp(vm: MainViewModel) {
                 title = {
                     Text(
                         when {
-                            showHistory -> "历史记录"
-                            showSettings -> "设置"
+                            showHistory -> t("历史记录")
+                            showSettings -> t("设置")
                             else -> "BiTrans"
                         },
                         fontWeight = FontWeight(600),
@@ -251,11 +275,11 @@ fun BiTransApp(vm: MainViewModel) {
                 navigationIcon = {
                     if (showSettings) {
                         IconButton(onClick = { exitSettingsSavingEdits() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = t("返回"))
                         }
                     } else if (showHistory) {
                         IconButton(onClick = { showHistory = false; historyPage = HistoryPage.List }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = t("返回"))
                         }
                     }
                 },
@@ -265,17 +289,17 @@ fun BiTransApp(vm: MainViewModel) {
                             val ctxAct = LocalContext.current
                             TextButton(onClick = {
                                 vm.saveAndTest(pendingEdits ?: settings)
-                                android.widget.Toast.makeText(ctxAct, "已保存并开始自测", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(ctxAct, I18n.t(ctxAct, "已保存并开始自测"), android.widget.Toast.LENGTH_SHORT).show()
                             }) {
-                                Text("保存", fontSize = 14.sp)
+                                Text(t("保存"), fontSize = 14.sp)
                             }
                         }
                         !showHistory -> {
                             IconButton(onClick = { showHistory = true }) {
-                                Icon(Icons.Default.History, contentDescription = "历史")
+                                Icon(Icons.Default.History, contentDescription = t("历史"))
                             }
                             IconButton(onClick = { showSettings = true }) {
-                                Icon(Icons.Default.Settings, contentDescription = "设置")
+                                Icon(Icons.Default.Settings, contentDescription = t("设置"))
                             }
                         }
                     }
@@ -351,11 +375,11 @@ private fun MainPane(
         if (askSave) {
             AppleDialog(
                 onDismiss = { vm.discardSession() },
-                title = "保存到历史记录？",
-                message = "本次共 ${captions.size} 段字幕。保存后可在历史中查看，并自动生成摘要标题。",
-                confirmText = "保存",
+                title = t("保存到历史记录？"),
+                message = format(t("本次共 {0} 段字幕。保存后可在历史中查看，并自动生成摘要标题。"), captions.size),
+                confirmText = t("保存"),
                 onConfirm = { vm.confirmSaveSession() },
-                dismissText = "不保存",
+                dismissText = t("不保存"),
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -430,21 +454,21 @@ private fun StatusAndScrollRow(
                         ),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("聆听中", fontSize = 12.sp)
+                Text(t("聆听中"), fontSize = 12.sp)
             }
             if (!listening && status.isBlank()) {
                 // capture-source chips only when idle and no status message
                 FilterChip(
                     selected = captureMode == "mic",
                     onClick = { onCaptureMode("mic") },
-                    label = { Text("麦克风", fontSize = 11.sp) },
+                    label = { Text(t("麦克风"), fontSize = 11.sp) },
                     shape = PillShape,
                 )
                 Spacer(Modifier.width(6.dp))
                 FilterChip(
                     selected = captureMode == "playback",
                     onClick = { onCaptureMode("playback") },
-                    label = { Text("播放声", fontSize = 11.sp) },
+                    label = { Text(t("播放声"), fontSize = 11.sp) },
                     shape = PillShape,
                 )
             }
@@ -460,7 +484,7 @@ private fun StatusAndScrollRow(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (autoScroll) "最新" else "手动",
+                if (autoScroll) t("最新") else t("手动"),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -511,7 +535,7 @@ private fun ControlButtons(
         ) {
             Icon(if (listening) Icons.Default.Stop else Icons.Default.Mic, null, Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
-            Text(if (listening) "停止" else "开始同传", fontSize = 13.sp)
+            Text(if (listening) t("停止") else t("开始同传"), fontSize = 13.sp)
         }
         OutlinedButton(
             onClick = onClear,
@@ -521,7 +545,7 @@ private fun ControlButtons(
         ) {
             Icon(Icons.Default.Delete, null, Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
-            Text("清空", fontSize = 13.sp)
+            Text(t("清空"), fontSize = 13.sp)
         }
     }
 }
@@ -535,16 +559,16 @@ private fun ModelDownloadPane(vm: MainViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("首次使用需下载语音识别模型", fontSize = 18.sp, fontWeight = FontWeight(600))
+        Text(t("首次使用需下载语音识别模型"), fontSize = 18.sp, fontWeight = FontWeight(600))
         Spacer(Modifier.height(8.dp))
         Text(
-            "SenseVoice int8（约240MB，中/英/日/韩/粤）\n下载一次后完全离线运行，无任何订阅费",
+            t("SenseVoice int8（约240MB，中/英/日/韩/粤）\n下载一次后完全离线运行，无任何订阅费"),
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 19.sp,
         )
         Spacer(Modifier.height(20.dp))
-        PillButton(label = "下载模型") { vm.downloadModels() }
+        PillButton(label = t("下载模型")) { vm.downloadModels() }
     }
 }
 
@@ -564,10 +588,10 @@ private fun DownloadingPane(s: UiState.Downloading) {
             strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
         )
         Spacer(Modifier.height(12.dp))
-        Text("下载中 ${"%.0f".format(pct * 100)}%  (${s.done / 1000000}/${s.total / 1000000} MB)", fontSize = 13.sp)
+        Text(format(t("下载中 {0}%  ({1}/{2} MB)"), "%.0f".format(pct * 100), s.done / 1000000, s.total / 1000000), fontSize = 13.sp)
         if (s.error != null) {
             Spacer(Modifier.height(8.dp))
-            Text("失败: ${s.error}", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+            Text(format(t("失败: {0}"), s.error ?: ""), color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
         }
     }
 }
@@ -592,14 +616,14 @@ private fun CaptionCard(cap: com.samge.bitrans.data.Caption) {
                 ) {
                     Icon(
                         Icons.Default.ContentCopy,
-                        contentDescription = "复制",
+                        contentDescription = t("复制"),
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
             if (cap.pending) {
-                Text("翻译中…", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("翻译中…"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else if (cap.target.isNotBlank() && cap.target != cap.source) {
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -618,7 +642,7 @@ private fun copyCaption(ctx: android.content.Context, source: String, target: St
     val text = if (target.isBlank() || target == source) source else "$source\n$target"
     val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
     cm.setPrimaryClip(android.content.ClipData.newPlainText("BiTrans", text))
-    android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+    android.widget.Toast.makeText(ctx, I18n.t(ctx, "已复制"), android.widget.Toast.LENGTH_SHORT).show()
 }
 
 @Composable
@@ -724,18 +748,19 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
     var overlayAlpha by remember { mutableStateOf(cur.overlayAlpha.toFloat()) }
     var overlayLines by remember { mutableStateOf(cur.overlayLines.toFloat()) }
     var autoScroll by remember { mutableStateOf(cur.autoScroll) }
+    var appLang by remember { mutableStateOf(cur.appLang) }
 
     var openGroup by remember { mutableStateOf("direction") }
 
     fun buildSettings() = AppSettings(
         engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, noThink, tts,
         overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
-        overlayLines.toInt(), autoScroll, translateOn,
+        overlayLines.toInt(), autoScroll, translateOn, appLang,
     )
 
     // keep the parent's "pending edits" current so back/gesture-exit saves the
     // LIVE values the user typed (not the previously persisted snapshot)
-    LaunchedEffect(engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, noThink, tts, translateOn, overlayOn, overlayW, overlayFont, overlayAlpha, overlayLines, autoScroll) {
+    LaunchedEffect(engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, noThink, tts, translateOn, overlayOn, overlayW, overlayFont, overlayAlpha, overlayLines, autoScroll, appLang) {
         onEdits(buildSettings())
     }
 
@@ -746,7 +771,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) vm.importSettings(ctx, uri) { ok ->
-            Toast.makeText(ctx, if (ok) "配置已导入" else "导入失败：文件格式不正确", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, if (ok) I18n.t(ctx, "配置已导入") else I18n.t(ctx, "导入失败：文件格式不正确"), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -758,35 +783,35 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
     ) {
         Spacer(Modifier.height(8.dp))
 
-        GroupCard("翻译方向", openGroup == "direction", { openGroup = if (openGroup == "direction") "" else "direction" },
-            summary = "${if (source == "auto") "自动" else source} → $target") {
-            Text("源语言（说出来的话）", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        GroupCard(t("翻译方向"), openGroup == "direction", { openGroup = if (openGroup == "direction") "" else "direction" },
+            summary = "${if (source == "auto") t("自动") else source} → $target") {
+            Text(t("源语言（说出来的话）"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(4.dp))
             FlowChips(
-                listOf("auto" to "自动") + TargetLang.entries.map { it.code to it.display },
+                listOf("auto" to t("自动")) + TargetLang.entries.map { it.code to t(it.display) },
                 source,
             ) { source = it }
             Spacer(Modifier.height(8.dp))
-            Text("目标语言（翻译成）", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(t("目标语言（翻译成）"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(4.dp))
             FlowChips(TargetLang.entries.map { it.code to it.display }, target) { target = it }
         }
 
         Spacer(Modifier.height(8.dp))
-        GroupCard("翻译引擎", openGroup == "engine", { openGroup = if (openGroup == "engine") "" else "engine" },
-            summary = when (engine) { "mlkit" -> "ML Kit 离线"; "libre" -> "LibreTranslate"; else -> "LLM" }) {
+        GroupCard(t("翻译引擎"), openGroup == "engine", { openGroup = if (openGroup == "engine") "" else "engine" },
+            summary = when (engine) { "mlkit" -> "ML Kit"; "libre" -> "LibreTranslate"; else -> "LLM" }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = engine == "mlkit", onClick = { engine = "mlkit" }, modifier = Modifier.size(32.dp))
-                Text("ML Kit 离线（需谷歌服务，免费）", fontSize = 13.sp)
+                Text(t("ML Kit 离线（需谷歌服务，免费）"), fontSize = 13.sp)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = engine == "libre", onClick = { engine = "libre" }, modifier = Modifier.size(32.dp))
-                Text("LibreTranslate（开源自托管）", fontSize = 13.sp)
+                Text(t("LibreTranslate（开源自托管）"), fontSize = 13.sp)
             }
             if (engine == "libre") {
                 OutlinedTextField(
                     value = ltEndpoint, onValueChange = { ltEndpoint = it },
-                    label = { Text("服务地址", fontSize = 12.sp) },
+                    label = { Text(t("服务地址"), fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
                     singleLine = true, textStyle = MaterialTheme.typography.bodySmall,
                     shape = RoundedCornerShape(9.dp),
@@ -794,60 +819,95 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = engine == "llm", onClick = { engine = "llm" }, modifier = Modifier.size(32.dp))
-                Text("LLM（OpenAI 兼容 / 局域网 vLLM）", fontSize = 13.sp)
+                Text(t("LLM（OpenAI 兼容 / 局域网 vLLM）"), fontSize = 13.sp)
             }
             if (engine == "llm") {
                 OutlinedTextField(
                     value = llmBase, onValueChange = { llmBase = it },
-                    label = { Text("Base URL（含 http://）", fontSize = 12.sp) },
+                    label = { Text(t("Base URL（含 http://）"), fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
                     singleLine = true, textStyle = MaterialTheme.typography.bodySmall,
                     shape = RoundedCornerShape(9.dp),
                 )
                 OutlinedTextField(
                     value = llmModel, onValueChange = { llmModel = it },
-                    label = { Text("模型名", fontSize = 12.sp) },
+                    label = { Text(t("模型名"), fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
                     singleLine = true, textStyle = MaterialTheme.typography.bodySmall,
                     shape = RoundedCornerShape(9.dp),
                 )
                 OutlinedTextField(
                     value = llmKey, onValueChange = { llmKey = it },
-                    label = { Text("API Key（无鉴权可留空）", fontSize = 12.sp) },
+                    label = { Text(t("API Key（无鉴权可留空）"), fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
                     singleLine = true, textStyle = MaterialTheme.typography.bodySmall,
                     shape = RoundedCornerShape(9.dp),
                 )
                 Spacer(Modifier.height(6.dp))
-                Text("禁用思考（推理模型会拖慢翻译）", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(t("禁用思考（推理模型会拖慢翻译）"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(selected = noThink == "quiet", onClick = { noThink = "quiet" },
-                        label = { Text("标准(默认)", fontSize = 11.sp) }, shape = PillShape)
+                        label = { Text(t("标准(默认)"), fontSize = 11.sp) }, shape = PillShape)
                     FilterChip(selected = noThink == "all", onClick = { noThink = "all" },
-                        label = { Text("全量字段", fontSize = 11.sp) }, shape = PillShape)
+                        label = { Text(t("全量字段"), fontSize = 11.sp) }, shape = PillShape)
                     FilterChip(selected = noThink == "none", onClick = { noThink = "none" },
-                        label = { Text("不禁用", fontSize = 11.sp) }, shape = PillShape)
+                        label = { Text(t("不禁用"), fontSize = 11.sp) }, shape = PillShape)
                 }
             }
         }
 
         Spacer(Modifier.height(8.dp))
-        GroupCard("通用", openGroup == "general", { openGroup = if (openGroup == "general") "" else "general" }) {
-            SettingRow("启用翻译", "关闭则只显示原文") {
+        GroupCard(t("通用"), openGroup == "general", { openGroup = if (openGroup == "general") "" else "general" }) {
+            SettingRow(t("启用翻译"), t("关闭则只显示原文")) {
                 Switch(checked = translateOn, onCheckedChange = { translateOn = it }, modifier = Modifier.height(24.dp))
             }
-            SettingRow("朗读译文", "系统 TTS") {
+            SettingRow(t("朗读译文"), t("系统 TTS")) {
                 Switch(checked = tts, onCheckedChange = { tts = it }, modifier = Modifier.height(24.dp))
             }
-            SettingRow("自动滚动", "新字幕到达时跟随") {
+            SettingRow(t("自动滚动"), t("新字幕到达时跟随")) {
                 Switch(checked = autoScroll, onCheckedChange = { autoScroll = it }, modifier = Modifier.height(24.dp))
+            }
+            SettingRow(t("语言"), t("界面语言，即时生效")) {
+                var langMenu by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(
+                        onClick = { langMenu = true },
+                        shape = PillShape,
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp),
+                        modifier = Modifier.heightIn(min = 32.dp),
+                    ) {
+                        Text(
+                            AppLang.entries.firstOrNull { it.code == appLang }?.let { l ->
+                                if (l == AppLang.SYSTEM) t("跟随系统") else l.nativeName
+                            } ?: t("跟随系统"),
+                            fontSize = 12.sp,
+                        )
+                    }
+                    DropdownMenu(expanded = langMenu, onDismissRequest = { langMenu = false }) {
+                        AppLang.entries.forEach { l ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (l == AppLang.SYSTEM) t("跟随系统") else l.nativeName,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (l.code == appLang) FontWeight(600) else FontWeight(400),
+                                    )
+                                },
+                                onClick = {
+                                    appLang = l.code
+                                    langMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
 
         Spacer(Modifier.height(8.dp))
-        GroupCard("悬浮字幕", openGroup == "overlay", { openGroup = if (openGroup == "overlay") "" else "overlay" },
-            summary = if (overlayOn) "${overlayLines.toInt()} 行" else "关") {
+        GroupCard(t("悬浮字幕"), openGroup == "overlay", { openGroup = if (openGroup == "overlay") "" else "overlay" },
+            summary = if (overlayOn) format(t("{0} 行"), overlayLines.toInt()) else t("关")) {
             val canDraw = Settings.canDrawOverlays(ctx)
             Row(
                 Modifier.fillMaxWidth(),
@@ -855,13 +915,13 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (canDraw) "启用悬浮窗" else "需要悬浮窗权限",
+                        if (canDraw) t("启用悬浮窗") else t("需要悬浮窗权限"),
                         fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "可拖动 · 点按折叠",
+                        t("可拖动 · 点按折叠"),
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -888,39 +948,35 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
             if (!canDraw) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "系统限制了侧载应用的浮窗权限，按品牌解锁：\n" +
-                        "OPPO/一加：应用权限设置页右上角点「验证」，通过后解除所有限制\n" +
-                        "小米/红米：开发者选项开「USB 调试(安全设置)」后电脑执行 adb shell appops set com.samge.bitrans SYSTEM_ALERT_WINDOW allow\n" +
-                        "其他：设置→应用→BiTrans→悬浮窗/后台弹出界面 允许\n" +
-                        "未解锁时开启监听，字幕将显示在通知栏（下拉可见）",
+                    t("系统限制了侧载应用的浮窗权限，按品牌解锁：\nOPPO/一加：应用权限设置页右上角点「验证」，通过后解除所有限制\n小米/红米：开发者选项开「USB 调试(安全设置)」后电脑执行 adb shell appops set com.samge.bitrans SYSTEM_ALERT_WINDOW allow\n其他：设置→应用→BiTrans→悬浮窗/后台弹出界面 允许\n未解锁时开启监听，字幕将显示在通知栏（下拉可见）"),
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.error,
                     lineHeight = 14.sp,
                 )
             }
-            SettingSlider("显示行数（原文+译文为一组）", overlayLines, 1f..10f, 8) { overlayLines = it }
-            Text("${overlayLines.toInt()} 组", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SettingSlider("浮窗宽度", overlayW, 40f..100f, 11) { overlayW = it }
-            Text("${overlayW.toInt()}% 屏宽", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SettingSlider("字号", overlayFont, 10f..28f, 17) { overlayFont = it }
+            SettingSlider(t("显示行数（原文+译文为一组）"), overlayLines, 1f..10f, 8) { overlayLines = it }
+            Text(format(t("{0} 组"), overlayLines.toInt()), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingSlider(t("浮窗宽度"), overlayW, 40f..100f, 11) { overlayW = it }
+            Text("${overlayW.toInt()}% " + t("屏宽"), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingSlider(t("字号"), overlayFont, 10f..28f, 17) { overlayFont = it }
             Text("${overlayFont.toInt()}sp", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SettingSlider("背景不透明度", overlayAlpha, 20f..95f, 14) { overlayAlpha = it }
+            SettingSlider(t("背景不透明度"), overlayAlpha, 20f..95f, 14) { overlayAlpha = it }
             Text("${overlayAlpha.toInt()}%", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
         Spacer(Modifier.height(8.dp))
-        GroupCard("配置", openGroup == "config", { openGroup = if (openGroup == "config") "" else "config" }) {
+        GroupCard(t("配置"), openGroup == "config", { openGroup = if (openGroup == "config") "" else "config" }) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PillButton(label = "导出配置", filled = false, compact = true) {
+                PillButton(label = t("导出配置"), filled = false, compact = true) {
                     exportLauncher.launch("bitrans-config.json")
                 }
-                PillButton(label = "导入配置", filled = false, compact = true) {
+                PillButton(label = t("导入配置"), filled = false, compact = true) {
                     importLauncher.launch(arrayOf("application/json"))
                 }
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "导出不包含 API Key（安全考虑）；导入后自动应用",
+                t("导出不包含 API Key（安全考虑）；导入后自动应用"),
                 fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -928,7 +984,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
 
         Spacer(Modifier.height(12.dp))
         Text(
-            "开源免费: sherpa-onnx (Apache-2.0) · SenseVoice · silero-vad · ML Kit / LibreTranslate / 自托管 LLM",
+            t("开源免费: sherpa-onnx (Apache-2.0) · SenseVoice · silero-vad · ML Kit / LibreTranslate / 自托管 LLM"),
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 14.sp,
@@ -1026,23 +1082,22 @@ private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.S
                     Column(Modifier.weight(1f)) {
                         Text(s.title, fontSize = 14.sp, fontWeight = FontWeight(500))
                         Text(
-                            java.text.SimpleDateFormat("yyyy年M月d日 HH:mm", Locale.getDefault())
-                                .format(java.util.Date(s.startedAt)) +
-                                " · " + (countsBySession[s.id]?.let { "${it}段" } ?: "…"),
+                            dateText(s.startedAt) +
+                                " · " + (countsBySession[s.id]?.let { format(t("{0}段"), it) } ?: "…"),
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     var confirmDelete by remember { mutableStateOf(false) }
                     IconButton(onClick = { confirmDelete = true }) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
+                        Icon(Icons.Default.Delete, contentDescription = t("删除"), tint = MaterialTheme.colorScheme.error)
                     }
                     if (confirmDelete) {
                         AppleDialog(
                             onDismiss = { confirmDelete = false },
-                            title = "删除这条记录？",
-                            message = "「${s.title}」将被永久删除，含全部字幕与总结对话。",
-                            confirmText = "删除",
+                            title = t("删除这条记录？"),
+                            message = format(t("「{0}」将被永久删除，含全部字幕与总结对话。"), s.title),
+                            confirmText = t("删除"),
                             confirmColor = MaterialTheme.colorScheme.error,
                             onConfirm = {
                                 vm.deleteSession(s.id)
@@ -1056,7 +1111,7 @@ private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.S
         if (sessions.isEmpty()) {
             item {
                 Text(
-                    "暂无历史记录\n开始一次同传并停止后会自动保存",
+                    t("暂无历史记录\n开始一次同传并停止后会自动保存"),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -1090,41 +1145,39 @@ private fun SessionDetailPage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = { onNavigate(null) }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = t("返回"))
             }
             Column(Modifier.weight(1f)) {
                 Text(live.title, fontSize = 15.sp, fontWeight = FontWeight(600), maxLines = 1)
                 Text(
-                    "${items.size} 段 · " + java.text.SimpleDateFormat(
-                        "yyyy年M月d日 HH:mm", Locale.getDefault(),
-                    ).format(java.util.Date(live.startedAt)),
+                    format(t("{0}段 · "), items.size) + dateText(live.startedAt),
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             IconButton(onClick = { renameDialog = true }) {
-                Icon(Icons.Default.Settings, contentDescription = "重命名")
+                Icon(Icons.Default.Settings, contentDescription = t("重命名"))
             }
-            PillButton(label = "总结", compact = true) {
+            PillButton(label = t("总结"), compact = true) {
                 if (vm.llmConfigured()) {
                     vm.bindChat(session.id)
                     vm.maybeAutoSummarize(session.id)
                     onNavigate(session)
                 } else {
-                    android.widget.Toast.makeText(ctx, "请先到设置页配置 LLM 引擎", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(ctx, I18n.t(ctx, "请先到设置页配置 LLM 引擎"), android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         }
         if (renameDialog) {
             AppleDialog(
                 onDismiss = { renameDialog = false; aiNaming = false },
-                title = "重命名",
-                confirmText = "确定",
+                title = t("重命名"),
+                confirmText = t("确定"),
                 onConfirm = {
                     vm.renameSession(session.id, renameText)
                     renameDialog = false
                 },
-                dismissText = "取消",
+                dismissText = t("取消"),
                 extraContent = {
                 OutlinedTextField(
                     value = renameText,
@@ -1143,12 +1196,12 @@ private fun SessionDetailPage(
                                 aiNaming = false
                                 if (generated != null) renameText = generated
                             }
-                        }) { Text("AI 起名", fontSize = 13.sp) }
+                        }) { Text(t("AI 起名"), fontSize = 13.sp) }
                     }
                     if (aiNaming) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(6.dp))
-                        Text("生成中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(t("生成中…"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
             )
@@ -1177,7 +1230,7 @@ private fun SessionDetailPage(
                             ) {
                                 Icon(
                                     Icons.Default.ContentCopy,
-                                    contentDescription = "复制",
+                                    contentDescription = t("复制"),
                                     modifier = Modifier.size(14.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -1335,14 +1388,14 @@ private fun SummaryChatPage(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = t("返回"))
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("AI 总结 · ${session.title}", fontSize = 13.sp, fontWeight = FontWeight(600), maxLines = 1)
-                Text(if (streaming) "生成中…" else "基于本次记录的对话", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(format(t("AI 总结 · {0}"), session.title), fontSize = 13.sp, fontWeight = FontWeight(600), maxLines = 1)
+                Text(if (streaming) t("生成中…") else t("基于本次记录的对话"), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = { vm.clearChat(session.id) }) {
-                Icon(Icons.Default.Delete, contentDescription = "清空会话", tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Default.Delete, contentDescription = t("清空会话"), tint = MaterialTheme.colorScheme.error)
             }
         }
         LazyColumn(
@@ -1400,7 +1453,7 @@ private fun SummaryChatPage(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("继续提问…", fontSize = 13.sp) },
+                placeholder = { Text(t("继续提问…"), fontSize = 13.sp) },
                 textStyle = MaterialTheme.typography.bodySmall,
                 shape = RoundedCornerShape(18.dp),
                 maxLines = 3,
@@ -1420,7 +1473,7 @@ private fun SummaryChatPage(
                 enabled = !streaming && input.isNotBlank(),
                 shape = PillShape,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text("发送", fontSize = 13.sp) }
+            ) { Text(t("发送"), fontSize = 13.sp) }
         }
     }
 }
