@@ -1139,15 +1139,23 @@ private fun SummaryChatPage(
 
     // auto-scroll: reactive to LAYOUT changes (text growth included), aligned
     // BEFORE layout via requestScrollToItem (no double-layout -> no jitter)
-    LaunchedEffect(listState, followBottom) {
-        androidx.compose.runtime.snapshotFlow { listState.layoutInfo.totalItemsCount }
-            .collect { total ->
-                if (!followBottom.value) return@collect
-                val last = total - 1
-                if (last >= 0 && listState.canScrollForward) {
-                    listState.requestScrollToItem(last)
-                }
+    LaunchedEffect(listState, followBottom.value) {
+        androidx.compose.runtime.snapshotFlow {
+            // observe count + follow + last-item size (growing bubble) so any
+            // layout growth re-fires while following
+            Triple(
+                listState.layoutInfo.totalItemsCount,
+                followBottom.value,
+                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.size ?: 0,
+            )
+        }.collect { state ->
+            val (total, following, _) = state
+            if (!following) return@collect
+            val last = total - 1
+            if (last >= 0) {
+                listState.requestScrollToItem(last)
             }
+        }
     }
 
     Column(
@@ -1238,6 +1246,7 @@ private fun SummaryChatPage(
                 onClick = {
                     val text = input.trim()
                     if (text.isNotEmpty()) {
+                        followBottom.value = true // sending always re-follows
                         vm.sendChat(session.id, text)
                         input = ""
                     }
