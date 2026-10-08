@@ -970,8 +970,25 @@ private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.S
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { vm.deleteSession(s.id) }) {
+                    var confirmDelete by remember { mutableStateOf(false) }
+                    IconButton(onClick = { confirmDelete = true }) {
                         Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
+                    }
+                    if (confirmDelete) {
+                        AlertDialog(
+                            onDismissRequest = { confirmDelete = false },
+                            title = { Text("删除这条记录？", fontSize = 15.sp) },
+                            text = { Text("「${s.title}」将被永久删除，含全部字幕与总结对话。", fontSize = 13.sp) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    vm.deleteSession(s.id)
+                                    confirmDelete = false
+                                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { confirmDelete = false }) { Text("取消") }
+                            },
+                        )
                     }
                 }
             }
@@ -998,8 +1015,12 @@ private fun SessionDetailPage(
 ) {
     val ctx = LocalContext.current
     val items by vm.itemsOf(session.id).collectAsState(initial = emptyList())
+    // LIVE session row: renames (manual or AI) show immediately in the header
+    val sessions by vm.sessions.collectAsState()
+    val live = sessions.firstOrNull { it.id == session.id } ?: session
     var renameDialog by remember { mutableStateOf(false) }
-    var renameText by remember(session.id) { mutableStateOf(session.title) }
+    var renameText by remember(live.id) { mutableStateOf(live.title) }
+    var aiNaming by remember { mutableStateOf(false) }
     val sbInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     Column(Modifier.fillMaxSize().padding(top = sbInset)) {
@@ -1012,7 +1033,7 @@ private fun SessionDetailPage(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
             Column(Modifier.weight(1f)) {
-                Text(session.title, fontSize = 15.sp, fontWeight = FontWeight(600), maxLines = 1)
+                Text(live.title, fontSize = 15.sp, fontWeight = FontWeight(600), maxLines = 1)
                 Text("${items.size} 段", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             IconButton(onClick = { renameDialog = true }) {
@@ -1048,11 +1069,19 @@ private fun SessionDetailPage(
                 },
                 dismissButton = {
                     Row {
-                        if (vm.llmConfigured()) {
+                        if (vm.llmConfigured() && !aiNaming) {
                             TextButton(onClick = {
-                                vm.generateTitleWithLlm(session.id)
-                                renameDialog = false
+                                aiNaming = true
+                                vm.generateTitleWithLlmCallback(session.id) { generated ->
+                                    aiNaming = false
+                                    if (generated != null) renameText = generated
+                                }
                             }) { Text("AI 起名") }
+                        }
+                        if (aiNaming) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(6.dp))
+                            Text("生成中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TextButton(onClick = { renameDialog = false }) { Text("取消") }
                     }

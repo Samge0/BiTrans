@@ -32,6 +32,7 @@ class OverlayService : Service() {
     private var wm: WindowManager? = null
     private var box: LinearLayout? = null
     private var rows: LinearLayout? = null
+    @Volatile private var collapsedNow: Boolean = false
     private val main = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -100,28 +101,45 @@ class OverlayService : Service() {
         }
         fun applyCollapsed(c: Boolean) {
             collapsed = c
+            collapsedNow = c
             if (c) {
-                // remember current spot & swap content for the mini tab
                 lastExpandedX = lp.x
+                // swap content to the mini tab (LinearLayout params, safe add)
                 container.removeAllViews()
-                container.addView(tabView)
+                container.addView(
+                    tabView,
+                    LinearLayout.LayoutParams(dp(34), dp(34)),
+                )
                 container.setPadding(0, 0, 0, 0)
                 container.background = null
-                tabView.layoutParams = android.view.ViewGroup.LayoutParams(dp(34), dp(34))
-                // snap to the nearest horizontal edge (x is offset from LEFT)
                 val dm = resources.displayMetrics
                 val centerX = lp.x + dp(60)
-                lp.x = if (centerX < dm.widthPixels / 2) 0 else dm.widthPixels - dp(34)
+                lp.x = if (centerX < dm.widthPixels / 2) 0 else (dm.widthPixels - dp(34)).coerceAtLeast(0)
                 lp.width = dp(34)
+                lp.height = WindowManager.LayoutParams.WRAP_CONTENT
             } else {
                 container.removeAllViews()
-                container.addView(rowsView)
+                container.addView(
+                    rowsView,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
                 container.setPadding(dp(14), dp(10), dp(14), dp(10))
                 lp.x = lastExpandedX
                 lp.width = WindowManager.LayoutParams.WRAP_CONTENT
-                applyStyle()  // restores the rounded background & width
+                lp.height = WindowManager.LayoutParams.WRAP_CONTENT
             }
-            runCatching { wm?.updateViewLayout(container, lp) }
+            // full defensive relayout: some ROMs reject partial updates across
+            // width changes; remove+add is the bulletproof path
+            runCatching {
+                wm?.removeView(container)
+                wm?.addView(container, lp)
+            }.onFailure {
+                runCatching { wm?.updateViewLayout(container, lp) }
+            }
+            if (!c) applyStyle()
         }
         container.setOnTouchListener { _, e ->
             when (e.actionMasked) {
@@ -156,6 +174,7 @@ class OverlayService : Service() {
 
     private fun applyStyle() {
         val container = box ?: return
+        if (collapsedNow) return  // tab mode: don't fight the mini-tab geometry
         val dm = resources.displayMetrics
         val widthPx = (dm.widthPixels * TranslateConfig.overlayWidth(this) / 100)
         (container.layoutParams as? WindowManager.LayoutParams)?.let {

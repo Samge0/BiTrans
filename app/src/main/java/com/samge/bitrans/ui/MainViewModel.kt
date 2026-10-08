@@ -501,26 +501,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .map { rows: List<com.samge.bitrans.data.SessionCount> -> rows.associate { it.sessionId to it.count } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    /** Generate a short title for a session via the configured LLM (if any). */
+    /** Generate a short title via LLM and APPLY it directly. */
     fun generateTitleWithLlm(sessionId: Long) {
-        if (!llmConfigured()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val engine = TranslateConfig.currentEngine(ctx()) as com.samge.bitrans.translate.LlmEngine
-                val transcript = transcriptContext(sessionId)
-                if (transcript.isBlank()) return@launch
-                val msgs = listOf(
-                    "system" to "你起标题。只输出标题本身，不要引号不要解释，10字以内。",
-                    "user" to "为以下对话记录起一个简短中文标题：\n$transcript",
-                )
-                val title = engine.chatStream(msgs) {}.getOrDefault("")
-                    .trim().trim('"', '「', '」', ' ', '\n')
-                if (title.isNotBlank()) {
+        generateTitleWithLlmCallback(sessionId) { title ->
+            if (title != null) {
+                viewModelScope.launch(Dispatchers.IO) {
                     com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
                         .renameSession(sessionId, title.take(20))
                 }
+            }
+        }
+    }
+
+    /** Generate a short title via LLM and hand it back (dialog preview flow). */
+    fun generateTitleWithLlmCallback(sessionId: Long, onDone: (String?) -> Unit) {
+        if (!llmConfigured()) { onDone(null); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            var result: String? = null
+            try {
+                val engine = TranslateConfig.currentEngine(ctx()) as com.samge.bitrans.translate.LlmEngine
+                val transcript = transcriptContext(sessionId)
+                if (transcript.isNotBlank()) {
+                    val msgs = listOf(
+                        "system" to "你起标题。只输出标题本身，不要引号不要解释，10字以内。",
+                        "user" to "为以下对话记录起一个简短中文标题：\n$transcript",
+                    )
+                    val title = engine.chatStream(msgs) {}.getOrDefault("")
+                        .trim().trim('"', '「', '」', ' ', '\n')
+                    if (title.isNotBlank()) result = title.take(20)
+                }
             } catch (_: Throwable) {
             }
+            withContext(Dispatchers.Main) { onDone(result) }
         }
     }
 
