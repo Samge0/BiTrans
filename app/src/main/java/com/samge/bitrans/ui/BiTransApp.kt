@@ -161,7 +161,10 @@ fun BiTransApp(vm: MainViewModel) {
         // sub-pages draw their own status-bar inset; the scaffold must not also
         // reserve one (double inset = the blank strip above their titles).
         // IME inset is passed through so the chat input can sit above the keyboard.
-        contentWindowInsets = if (inHistorySubPage) WindowInsets.ime
+        // NOTE: IME inset is NOT passed here — the chat page applies its own
+        // imePadding(); passing it in BOTH places stacked into a huge gap
+        // between the input row and the keyboard.
+        contentWindowInsets = if (inHistorySubPage) WindowInsets(0, 0, 0, 0)
         else ScaffoldDefaults.contentWindowInsets,
         topBar = {
             if (!inHistorySubPage) CenterAlignedTopAppBar(
@@ -1088,26 +1091,29 @@ private fun SummaryChatPage(
     val listState = rememberLazyListState()
     val sbInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    // typewriter: buffer grows from live deltas; reveal at steady pace and ONLY
-    // stops when done — the final persisted row must not preempt the reveal.
+    // ---- typewriter ONLY for streams started while this page is visible ----
+    // Persisted history (page re-open) renders instantly — no replay effect.
     var fullText by remember { mutableStateOf("") }
     var shownChars by remember { mutableStateOf(0) }
-    var lastStreamSeq by remember { mutableStateOf(0) }   // bump per new stream
+    // tracks streams observed FROM THIS COMPOSITION: 0 until we see streaming=true
+    var observedStreams by remember { mutableStateOf(0) }
 
     LaunchedEffect(streaming) {
         if (streaming) {
+            // a fresh stream begins: reset the typewriter
             fullText = ""
             shownChars = 0
-            lastStreamSeq++
+            observedStreams++
         }
     }
-    LaunchedEffect(liveDelta?.content) {
+    // ingest deltas only when a stream from THIS page is active/just-finished
+    LaunchedEffect(liveDelta?.content, observedStreams) {
+        if (observedStreams == 0) return@LaunchedEffect   // replay of old stream — ignore
         val c = liveDelta?.content ?: return@LaunchedEffect
         if (c.length > fullText.length) fullText = c
     }
-    LaunchedEffect(lastStreamSeq, fullText) {
-        // reveal loop keyed to the CURRENT stream: keeps running until the buffer
-        // is fully revealed, even if streaming already flipped false.
+    LaunchedEffect(observedStreams, fullText) {
+        if (observedStreams == 0) return@LaunchedEffect
         while (shownChars < fullText.length) {
             shownChars = (shownChars + 3).coerceAtMost(fullText.length)
             kotlinx.coroutines.delay(16)
@@ -1116,8 +1122,10 @@ private fun SummaryChatPage(
 
     val revealDone = shownChars >= fullText.length
     val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, fullText, shownChars) {
-        if (fullText.isNotBlank() && !(revealDone && !streaming && persisted.any { it.role == "assistant" && it.content == fullText })) {
-            persisted + listOf(
+        if (observedStreams > 0 && fullText.isNotBlank() &&
+            !(revealDone && !streaming && persisted.any { it.role == "assistant" && it.content == fullText })
+        ) {
+            persisted.filter { it.id != -777L } + listOf(
                 com.samge.bitrans.data.ChatMessage(
                     id = Long.MAX_VALUE, sessionId = session.id, ts = 0,
                     role = "assistant", content = fullText.take(shownChars),
@@ -1146,6 +1154,15 @@ private fun SummaryChatPage(
     LaunchedEffect(msgs.size, shownChars, fullText.length, msgs.lastOrNull()?.content?.length) {
         if (msgs.isNotEmpty() && followTail) {
             listState.scrollToItem(msgs.lastIndex)
+            // the last item can be TALLER than the viewport (long markdown):
+            // scroll within it so its BOTTOM (the newest text) is visible
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            if (lastVisible != null && lastVisible.index == msgs.lastIndex) {
+                val overshoot = lastVisible.size - listState.layoutInfo.viewportEndOffset + lastVisible.offset
+                if (overshoot > 0) {
+                    listState.scrollToItem(msgs.lastIndex, overshoot)
+                }
+            }
         }
     }
 
