@@ -531,10 +531,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val engine = TranslateConfig.currentEngine(ctx()) as com.samge.bitrans.translate.LlmEngine
                 val transcript = transcriptContext(sessionId)
                 if (transcript.isNotBlank()) {
-                    val msgs = listOf(
-                        "system" to "你起标题。只输出标题本身，不要引号不要解释，10字以内。",
-                        "user" to "为以下对话记录起一个简短中文标题：\n$transcript",
-                    )
+                    val lang = com.samge.bitrans.i18n.I18n.resolve(ctx())
+                    val msgs = when (lang) {
+                        com.samge.bitrans.i18n.DictLang.ZH -> listOf(
+                            "system" to "你起标题。只输出标题本身，不要引号不要解释，10字以内。",
+                            "user" to "为以下对话记录起一个简短中文标题：\n$transcript",
+                        )
+                        com.samge.bitrans.i18n.DictLang.ZH_TW -> listOf(
+                            "system" to "你起標題。只輸出標題本身，不要引號不要解釋，10字以內。",
+                            "user" to "為以下對話記錄起一個簡短繁體中文標題：\n$transcript",
+                        )
+                        com.samge.bitrans.i18n.DictLang.EN -> listOf(
+                            "system" to "You generate titles. Output only the title itself: no quotes, no explanation, max 10 words.",
+                            "user" to "Give the following conversation transcript a short title in English:\n$transcript",
+                        )
+                        com.samge.bitrans.i18n.DictLang.JA -> listOf(
+                            "system" to "タイトルを付けてください。タイトルのみを出力し、引用符や説明は不要、10文字以内。",
+                            "user" to "次の対話記録に短い日本語のタイトルを付けてください：\n$transcript",
+                        )
+                        com.samge.bitrans.i18n.DictLang.KO -> listOf(
+                            "system" to "제목을 지어주세요. 제목만 출력하고 따옴표나 설명은 넣지 마세요. 10자 이내.",
+                            "user" to "다음 대화 기록에 짧은 한국어 제목을 지어주세요:\n$transcript",
+                        )
+                    }
                     val title = engine.chatStream(msgs) {}.getOrDefault("")
                         .trim().trim('"', '「', '」', ' ', '\n')
                     if (title.isNotBlank()) result = title.take(20)
@@ -614,7 +633,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val dao = com.samge.bitrans.data.AppDatabase.get(ctx()).captionDao()
             val existing = dao.chatFlow(sessionId).first()
             if (existing.isNotEmpty()) return@launch
-            sendChat(sessionId, "请总结这段对话记录：讨论的主题、关键信息点、结论。用中文分点输出。")
+            sendChat(sessionId, when (com.samge.bitrans.i18n.I18n.resolve(ctx())) {
+                com.samge.bitrans.i18n.DictLang.ZH -> "请总结这段对话记录：讨论的主题、关键信息点、结论。用中文分点输出。"
+                com.samge.bitrans.i18n.DictLang.ZH_TW -> "請總結這段對話記錄：討論的主題、關鍵資訊點、結論。用繁體中文分點輸出。"
+                com.samge.bitrans.i18n.DictLang.EN -> "Summarize this conversation: the topics discussed, key points, and conclusions. Output as bullet points in English."
+                com.samge.bitrans.i18n.DictLang.JA -> "この対話を要約してください：議論のテーマ、重要なポイント、結論。日本語で箇条書きに出力してください。"
+                com.samge.bitrans.i18n.DictLang.KO -> "이 대화를 요약하세요: 논의된 주제, 핵심 포인트, 결론. 한국어로 항목별로 출력하세요."
+            })
         }
     }
 
@@ -638,8 +663,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 // build message list: transcript context (once) + prior chat + new user msg
                 val prior = dao.chatFlow(sessionId).first()
-                val msgs = mutableListOf("system" to "你是一个对话记录分析助手。用户会提供一段语音翻译记录（原文|译文 每行一条），请基于它回答问题或做总结。回答使用中文。")
-                msgs.add("user" to "对话记录如下：\n${transcriptContext(sessionId)}")
+                val sysPrompt = when (com.samge.bitrans.i18n.I18n.resolve(ctx())) {
+                    com.samge.bitrans.i18n.DictLang.ZH -> "你是一个对话记录分析助手。用户会提供一段语音翻译记录（原文|译文 每行一条），请基于它回答问题或做总结。回答使用中文。"
+                    com.samge.bitrans.i18n.DictLang.ZH_TW -> "你是一個對話記錄分析助手。用戶會提供一段語音翻譯記錄（原文|譯文 每行一條），請基於它回答問題或做總結。回答使用繁體中文。"
+                    com.samge.bitrans.i18n.DictLang.EN -> "You are a conversation-transcript analyst. The user provides a speech-translation transcript (source|target, one pair per line). Answer questions or summarize based on it. Reply in English."
+                    com.samge.bitrans.i18n.DictLang.JA -> "あなたは対話記録の分析アシスタントです。ユーザーは音声翻訳の記録（原文|訳文 1行1件）を提供します。それに基づいて質問に答えたり要約したりしてください。日本語で回答してください。"
+                    com.samge.bitrans.i18n.DictLang.KO -> "당신은 대화 기록 분석 어시스턴트입니다. 사용자가 음성 번역 기록(원문|번역, 한 줄에 한 쌍)을 제공합니다. 이를 바탕으로 질문에 답하거나 요약하세요. 한국어로 답변하세요."
+                }
+                val pre = when (com.samge.bitrans.i18n.I18n.resolve(ctx())) {
+                    com.samge.bitrans.i18n.DictLang.ZH -> "对话记录如下："
+                    com.samge.bitrans.i18n.DictLang.ZH_TW -> "對話記錄如下："
+                    com.samge.bitrans.i18n.DictLang.EN -> "The transcript is as follows:"
+                    com.samge.bitrans.i18n.DictLang.JA -> "対話記録は以下の通りです："
+                    com.samge.bitrans.i18n.DictLang.KO -> "대화 기록은 다음과 같습니다:"
+                }
+                val msgs = mutableListOf("system" to sysPrompt)
+                msgs.add("user" to pre + "\n${transcriptContext(sessionId)}")
                 prior.forEach { msgs.add(it.role to it.content) }
                 // stream deltas accumulate into the LIVE-DELTA channel (not
                 // _chatMessages — Room re-emissions would wipe a provisional
