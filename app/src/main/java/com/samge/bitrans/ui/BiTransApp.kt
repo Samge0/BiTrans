@@ -10,6 +10,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
@@ -1091,79 +1094,60 @@ private fun SummaryChatPage(
     val listState = rememberLazyListState()
     val sbInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    // ---- typewriter ONLY for streams started while this page is visible ----
-    // Persisted history (page re-open) renders instantly — no replay effect.
-    var fullText by remember { mutableStateOf("") }
-    var shownChars by remember { mutableStateOf(0) }
-    // tracks streams observed FROM THIS COMPOSITION: 0 until we see streaming=true
-    var observedStreams by remember { mutableStateOf(0) }
-
-    LaunchedEffect(streaming) {
-        if (streaming) {
-            // a fresh stream begins: reset the typewriter
-            fullText = ""
-            shownChars = 0
-            observedStreams++
-        }
+    // ---- streaming display: render deltas DIRECTLY (mainstream pattern —
+    // no synthetic typewriter; scrolling follows layout changes) ----
+    var streamText by remember { mutableStateOf("") }
+    LaunchedEffect(liveDelta?.content) {
+        streamText = liveDelta?.content ?: ""
     }
-    // ingest deltas only when a stream from THIS page is active/just-finished
-    LaunchedEffect(liveDelta?.content, observedStreams) {
-        if (observedStreams == 0) return@LaunchedEffect   // replay of old stream — ignore
-        val c = liveDelta?.content ?: return@LaunchedEffect
-        if (c.length > fullText.length) fullText = c
-    }
-    LaunchedEffect(observedStreams, fullText) {
-        if (observedStreams == 0) return@LaunchedEffect
-        while (shownChars < fullText.length) {
-            shownChars = (shownChars + 3).coerceAtMost(fullText.length)
-            kotlinx.coroutines.delay(16)
-        }
-    }
-
-    val revealDone = shownChars >= fullText.length
-    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, fullText, shownChars) {
-        if (observedStreams > 0 && fullText.isNotBlank() &&
-            !(revealDone && !streaming && persisted.any { it.role == "assistant" && it.content == fullText })
-        ) {
+    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, streamText) {
+        if (streaming && streamText.isNotBlank()) {
             persisted.filter { it.id != -777L } + listOf(
                 com.samge.bitrans.data.ChatMessage(
                     id = Long.MAX_VALUE, sessionId = session.id, ts = 0,
-                    role = "assistant", content = fullText.take(shownChars),
+                    role = "assistant", content = streamText,
                 )
             )
         } else persisted
     }
 
-    // auto-follow the growing bubble; pause while the user has scrolled away
-    // from the bottom (reading history) and resume when they return.
-    var lastCount by remember { mutableStateOf(0) }
-    var followTail by remember { mutableStateOf(true) }
+    // ---- follow-bottom (gpt_mobile/ChatGPT-style) ----
+    val isUserDragging by remember { mutableStateOf(false) }
+    val followBottom = remember { mutableStateOf(true) }
+
+    // user scrolled BACK to the bottom (by any means) -> resume following;
+    // scrolling away backward while following -> stop following
     LaunchedEffect(listState) {
-        androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex to listState.layoutInfo.totalItemsCount }
-            .collect { (idx, total) ->
-                if (total > 0) followTail = idx >= total - 1
+        androidx.compose.runtime.snapshotFlow {
+            Triple(
+                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1,
+                listState.layoutInfo.totalItemsCount,
+                listState.lastScrolledBackward,
+            )
+        }.collect { state ->
+            val (lastIdx, total, scrolledBack) = state
+            val atBottom = lastIdx >= total - 1 && !listState.canScrollForward
+            if (atBottom) {
+                followBottom.value = true
+            } else if (scrolledBack && listState.isScrollInProgress) {
+                followBottom.value = false
             }
-    }
-    // a brand-new message always snaps to tail (even if the user had scrolled away)
-    LaunchedEffect(msgs.size) {
-        if (msgs.size > lastCount) {
-            followTail = true
-            lastCount = msgs.size
         }
     }
-    LaunchedEffect(msgs.size, shownChars, fullText.length, msgs.lastOrNull()?.content?.length) {
-        if (msgs.isNotEmpty() && followTail) {
-            listState.scrollToItem(msgs.lastIndex)
-            // the last item can be TALLER than the viewport (long markdown):
-            // scroll within it so its BOTTOM (the newest text) is visible
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-            if (lastVisible != null && lastVisible.index == msgs.lastIndex) {
-                val overshoot = lastVisible.size - listState.layoutInfo.viewportEndOffset + lastVisible.offset
-                if (overshoot > 0) {
-                    listState.scrollToItem(msgs.lastIndex, overshoot)
+    // a NEW message (sent/received) always re-engages following
+    LaunchedEffect(msgs.size) { if (msgs.isNotEmpty()) followBottom.value = true }
+
+    // auto-scroll: reactive to LAYOUT changes (text growth included), aligned
+    // BEFORE layout via requestScrollToItem (no double-layout -> no jitter)
+    LaunchedEffect(listState, followBottom) {
+        androidx.compose.runtime.snapshotFlow { listState.layoutInfo.totalItemsCount }
+            .collect { total ->
+                if (!followBottom.value) return@collect
+                val last = total - 1
+                if (last >= 0 && listState.canScrollForward) {
+                    listState.requestScrollToItem(last)
                 }
             }
-        }
     }
 
     Column(
@@ -1190,7 +1174,16 @@ private fun SummaryChatPage(
         }
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        followBottom.value = false // touch on the list = manual browsing
+                    }
+                },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(msgs, key = { it.id }) { m ->
@@ -1218,7 +1211,7 @@ private fun SummaryChatPage(
                             } else {
                                 MarkdownBody(body, contentColor)
                             }
-                            if (m.id == Long.MAX_VALUE && shownChars < fullText.length) {
+                            if (m.id == Long.MAX_VALUE && streaming) {
                                 Text("▍", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
