@@ -1100,15 +1100,40 @@ private fun SummaryChatPage(
     LaunchedEffect(liveDelta?.content) {
         streamText = liveDelta?.content ?: ""
     }
-    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, streamText) {
-        if (streaming && streamText.isNotBlank()) {
-            persisted.filter { it.id != -777L } + listOf(
+    // pending echo: local user bubble at tap time (zero-latency feedback).
+    // Retire once the SAME user text is persisted in Room; the streaming
+    // assistant bubble covers the reply side on its own.
+    var pendingUser by remember { mutableStateOf<Pair<String, Long>?>(null) }
+    LaunchedEffect(persisted, pendingUser) {
+        val pu = pendingUser ?: return@LaunchedEffect
+        if (persisted.any { it.role == "user" && it.content == pu.first && it.ts >= pu.second }) {
+            pendingUser = null
+        }
+    }
+    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, streamText, pendingUser) {
+        val base = persisted.filter { it.id != -777L }
+        val pend = pendingUser
+        val waitingBubble = com.samge.bitrans.data.ChatMessage(
+            id = Long.MAX_VALUE - 1, sessionId = session.id, ts = 0,
+            role = "assistant", content = "",
+        )
+        when {
+            pend != null -> base + listOf(
+                com.samge.bitrans.data.ChatMessage(
+                    id = Long.MIN_VALUE, sessionId = session.id, ts = pend.second,
+                    role = "user", content = pend.first,
+                ),
+                waitingBubble,
+            )
+            streaming && streamText.isNotBlank() -> base + listOf(
                 com.samge.bitrans.data.ChatMessage(
                     id = Long.MAX_VALUE, sessionId = session.id, ts = 0,
                     role = "assistant", content = streamText,
                 )
             )
-        } else persisted
+            streaming -> base + listOf(waitingBubble)
+            else -> base
+        }
     }
 
     // ---- follow-bottom (gpt_mobile/ChatGPT-style) ----
@@ -1159,19 +1184,20 @@ private fun SummaryChatPage(
             val last = total - 1
             if (last < 0) return@collect
 
-            if (lastIdx == last) {
-                // last item is (partially) visible: align its BOTTOM with the
-                // viewport bottom -> new text stays in view as the bubble grows
-                val viewport = listState.layoutInfo.viewportEndOffset
-                val itemBottomOnScreen = listState.layoutInfo.visibleItemsInfo
-                    .last().offset + lastSize
-                val overshoot = itemBottomOnScreen - viewport
-                if (overshoot > 0) {
-                    listState.requestScrollToItem(last, overshoot)
-                }
+            val li = listState.layoutInfo
+            val viewportH = li.viewportEndOffset - li.viewportStartOffset
+            val lastInfo = li.visibleItemsInfo.lastOrNull()
+            if (lastInfo != null && lastInfo.index == last) {
+                // scroll offset so that the item's BOTTOM sits at the viewport
+                // BOTTOM: itemTop must be at (viewportH - itemSize) from the
+                // viewport top => scrollOffset = itemSize - viewportH (>=0 when
+                // taller than viewport; clamps naturally otherwise)
+                val scrollOffset = (lastInfo.size - viewportH).coerceAtLeast(0) +
+                    li.afterContentPadding
+                listState.requestScrollToItem(last, scrollOffset)
             } else {
                 // last item fully off-screen: jump to it (top-align first;
-                // next layout pass will bottom-pin via the branch above)
+                // next layout pass bottom-pins via the branch above)
                 listState.requestScrollToItem(last)
             }
         }
@@ -1230,7 +1256,7 @@ private fun SummaryChatPage(
                         modifier = Modifier.widthIn(max = 300.dp),
                     ) {
                         Column(Modifier.padding(10.dp)) {
-                            val body = m.content.ifBlank { if (streaming) "…" else "" }
+                            val body = m.content.ifBlank { if (streaming || m.id == Long.MAX_VALUE - 1) "…" else "" }
                             val contentColor = if (mine) MaterialTheme.colorScheme.onPrimary
                             else MaterialTheme.colorScheme.onSurface
                             if (mine) {
@@ -1238,7 +1264,7 @@ private fun SummaryChatPage(
                             } else {
                                 MarkdownBody(body, contentColor)
                             }
-                            if (m.id == Long.MAX_VALUE && streaming) {
+                            if ((m.id == Long.MAX_VALUE || m.id == Long.MAX_VALUE - 1) && (streaming || pendingUser != null)) {
                                 Text("▍", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
@@ -1266,6 +1292,7 @@ private fun SummaryChatPage(
                     val text = input.trim()
                     if (text.isNotEmpty()) {
                         followBottom.value = true // sending always re-follows
+                        pendingUser = text to System.currentTimeMillis()
                         vm.sendChat(session.id, text)
                         input = ""
                     }
