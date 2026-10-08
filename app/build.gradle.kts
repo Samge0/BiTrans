@@ -9,13 +9,26 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// CI signing: secrets provide the keystore (base64) + passwords.
-// Local builds fall back to the debug key automatically.
+// Signing: ONE key everywhere (CI + local test builds), so local test APKs
+// install over GitHub releases without uninstalling.
+// Priority: CI env vars (base64 keystore) > local keystore file app/bitrans-release.jks.
 val ciKeystoreB64 = System.getenv("KEYSTORE_BASE64")
 val ciStorePass = System.getenv("KEYSTORE_PASSWORD")
 val ciKeyAlias = System.getenv("KEY_ALIAS")
 val ciKeyPass = System.getenv("KEY_PASSWORD")
 val hasCiSigning = !ciKeystoreB64.isNullOrBlank() && !ciStorePass.isNullOrBlank()
+
+// local fallback: the SAME keystore CI uses, committed-adjacent (gitignored file)
+val localKs = rootProject.file("app/bitrans-release.jks")
+val localSecrets = rootProject.file(".secrets")
+fun secret(name: String): String? =
+    runCatching {
+        val f = localSecrets.resolve("$name.txt")
+        if (f.exists()) f.readText().trim().ifBlank { null } else null
+    }.getOrNull()
+val hasLocalSigning = !hasCiSigning && localKs.exists() &&
+    secret("KEYSTORE_PASSWORD") != null
+val useLocalSigning = hasLocalSigning
 
 android {
     namespace = "com.samge.bitrans"
@@ -51,16 +64,32 @@ android {
                 keyAlias = ciKeyAlias
                 keyPassword = ciKeyPass
             }
+        } else if (useLocalSigning) {
+            create("localRelease") {
+                storeFile = localKs
+                storePassword = secret("KEYSTORE_PASSWORD")
+                keyAlias = secret("KEY_ALIAS") ?: "bitrans"
+                keyPassword = secret("KEY_PASSWORD") ?: secret("KEYSTORE_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            if (hasCiSigning) {
-                signingConfig = signingConfigs.getByName("ci")
+            signingConfig = when {
+                hasCiSigning -> signingConfigs.getByName("ci")
+                useLocalSigning -> signingConfigs.getByName("localRelease")
+                else -> null
             }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            // local test builds also use the release key when present — same
+            // signature as GitHub releases, so they install as updates
+            if (useLocalSigning) {
+                signingConfig = signingConfigs.getByName("localRelease")
+            }
         }
     }
 
