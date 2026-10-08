@@ -220,6 +220,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (_listening.value) return
         try { com.samge.bitrans.listen.ListenService.start(ctx()) } catch (_: Exception) {}
         sessionStartAt = System.currentTimeMillis()
+        _captions.value = emptyList()
         com.samge.bitrans.overlay.OverlayService.clear()
         mic = MicListener(
             context = ctx(),
@@ -253,6 +254,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // keep process alive while user switches to Hilokal
             try { com.samge.bitrans.listen.ListenService.start(ctx()) } catch (_: Exception) {}
             sessionStartAt = System.currentTimeMillis()
+            // fresh session: drop the previous transcript so different sessions
+            // never merge into one saved record
+            _captions.value = emptyList()
             com.samge.bitrans.overlay.OverlayService.clear()
             mic = MicListener(
                 context = ctx(),

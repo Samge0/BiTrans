@@ -70,6 +70,70 @@ private fun PillButton(
     ) { Text(label, fontSize = if (compact) 12.sp else 14.sp, maxLines = 1) }
 }
 
+/**
+ * Apple-style alert: 22dp continuous-corner card, generous padding, centered
+ * title, left-aligned message, right-aligned text buttons (confirm = blue,
+ * destructive = red). Replaces stock M3 dialogs everywhere.
+ */
+@Composable
+fun AppleDialog(
+    onDismiss: () -> Unit,
+    title: String,
+    message: String? = null,
+    confirmText: String = "确定",
+    confirmColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
+    onConfirm: () -> Unit,
+    dismissText: String? = "取消",
+    extraContent: @Composable (ColumnScope.() -> Unit)? = null,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
+        ) {
+            Column(Modifier.padding(top = 22.dp, start = 22.dp, end = 22.dp, bottom = 14.dp)) {
+                Text(
+                    title,
+                    fontSize = 16.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight(600),
+                    lineHeight = 22.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (message != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        message,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                extraContent?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Column(content = it)
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (dismissText != null) {
+                        TextButton(onClick = onDismiss) {
+                            Text(dismissText, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    TextButton(onClick = onConfirm) {
+                        Text(confirmText, fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight(600), color = confirmColor)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BiTransApp(vm: MainViewModel) {
@@ -283,16 +347,13 @@ private fun MainPane(
         // stop-with-content -> ask whether to save to history
         val askSave by vm.askSaveSession.collectAsState()
         if (askSave) {
-            AlertDialog(
-                onDismissRequest = { vm.discardSession() },
-                title = { Text("保存到历史记录？", fontSize = 15.sp) },
-                text = { Text("本次共 ${captions.size} 段字幕。保存后可在历史中查看，并自动生成摘要标题。", fontSize = 13.sp) },
-                confirmButton = {
-                    TextButton(onClick = { vm.confirmSaveSession() }) { Text("保存") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { vm.discardSession() }) { Text("不保存") }
-                },
+            AppleDialog(
+                onDismiss = { vm.discardSession() },
+                title = "保存到历史记录？",
+                message = "本次共 ${captions.size} 段字幕。保存后可在历史中查看，并自动生成摘要标题。",
+                confirmText = "保存",
+                onConfirm = { vm.confirmSaveSession() },
+                dismissText = "不保存",
             )
         }
         Spacer(Modifier.height(6.dp))
@@ -963,7 +1024,7 @@ private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.S
                     Column(Modifier.weight(1f)) {
                         Text(s.title, fontSize = 14.sp, fontWeight = FontWeight(500))
                         Text(
-                            java.text.SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                            java.text.SimpleDateFormat("yyyy年M月d日 HH:mm", Locale.getDefault())
                                 .format(java.util.Date(s.startedAt)) +
                                 " · " + (countsBySession[s.id]?.let { "${it}段" } ?: "…"),
                             fontSize = 11.sp,
@@ -975,18 +1036,15 @@ private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.S
                         Icon(Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
                     }
                     if (confirmDelete) {
-                        AlertDialog(
-                            onDismissRequest = { confirmDelete = false },
-                            title = { Text("删除这条记录？", fontSize = 15.sp) },
-                            text = { Text("「${s.title}」将被永久删除，含全部字幕与总结对话。", fontSize = 13.sp) },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    vm.deleteSession(s.id)
-                                    confirmDelete = false
-                                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { confirmDelete = false }) { Text("取消") }
+                        AppleDialog(
+                            onDismiss = { confirmDelete = false },
+                            title = "删除这条记录？",
+                            message = "「${s.title}」将被永久删除，含全部字幕与总结对话。",
+                            confirmText = "删除",
+                            confirmColor = MaterialTheme.colorScheme.error,
+                            onConfirm = {
+                                vm.deleteSession(s.id)
+                                confirmDelete = false
                             },
                         )
                     }
@@ -1034,7 +1092,13 @@ private fun SessionDetailPage(
             }
             Column(Modifier.weight(1f)) {
                 Text(live.title, fontSize = 15.sp, fontWeight = FontWeight(600), maxLines = 1)
-                Text("${items.size} 段", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "${items.size} 段 · " + java.text.SimpleDateFormat(
+                        "yyyy年M月d日 HH:mm", Locale.getDefault(),
+                    ).format(java.util.Date(live.startedAt)),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             IconButton(onClick = { renameDialog = true }) {
                 Icon(Icons.Default.Settings, contentDescription = "重命名")
@@ -1050,42 +1114,48 @@ private fun SessionDetailPage(
             }
         }
         if (renameDialog) {
-            AlertDialog(
-                onDismissRequest = { renameDialog = false },
-                title = { Text("重命名", fontSize = 15.sp) },
-                text = {
-                    OutlinedTextField(
-                        value = renameText,
-                        onValueChange = { renameText = it },
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodySmall,
-                    )
+            AppleDialog(
+                onDismiss = { renameDialog = false; aiNaming = false },
+                title = "重命名",
+                confirmText = "确定",
+                onConfirm = {
+                    vm.renameSession(session.id, renameText)
+                    renameDialog = false
                 },
-                confirmButton = {
-                    TextButton(onClick = {
-                        vm.renameSession(session.id, renameText)
-                        renameDialog = false
-                    }) { Text("确定") }
-                },
-                dismissButton = {
-                    Row {
-                        if (vm.llmConfigured() && !aiNaming) {
-                            TextButton(onClick = {
-                                aiNaming = true
-                                vm.generateTitleWithLlmCallback(session.id) { generated ->
-                                    aiNaming = false
-                                    if (generated != null) renameText = generated
-                                }
-                            }) { Text("AI 起名") }
-                        }
-                        if (aiNaming) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                dismissText = "取消",
+                extraContent = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    shape = RoundedCornerShape(11.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (vm.llmConfigured() && !aiNaming) {
+                        TextButton(onClick = {
+                            aiNaming = true
+                            vm.generateTitleWithLlmCallback(session.id) { generated ->
+                                aiNaming = false
+                                if (generated != null) renameText = generated
+                            }
+                        }) { Text("AI 起名", fontSize = 13.sp) }
+                    }
+                    if (aiNaming) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(6.dp))
                             Text("生成中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TextButton(onClick = { renameDialog = false }) { Text("取消") }
                     }
-                },
+                }
+            },
             )
         }
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
