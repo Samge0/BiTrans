@@ -28,6 +28,17 @@ enum class AppLang(val code: String, val nativeName: String) {
 enum class DictLang { ZH, EN, JA, KO, ZH_TW }
 
 /**
+ * ZH is an identity dictionary (key == value), EXCEPT these language
+ * self-names which should read as Chinese names in the Chinese UI
+ * (e.g. the "English"/"한국어" chips → 英文/韩语).
+ */
+internal val DictZhOverride: Map<String, String> = mapOf(
+    "English" to "英文",
+    "日本語" to "日语",
+    "한국어" to "韩语",
+)
+
+/**
  * Compose-observable snapshot of the resolved display language.
  * Initialized by MainActivity BEFORE first composition (zero-flash);
  * updated live when the user changes the language in Settings.
@@ -71,7 +82,7 @@ object I18n {
     }
 
     private fun lookup(lang: DictLang, key: String): String = when (lang) {
-        DictLang.ZH -> key
+        DictLang.ZH -> DictZhOverride[key] ?: key
         DictLang.EN -> DictEn[key] ?: key
         DictLang.JA -> DictJa[key] ?: key
         DictLang.KO -> DictKo[key] ?: key
@@ -88,7 +99,7 @@ fun t(key: String): String {
     val lang = I18nState.dictLang
     return remember(lang, key) {
         when (lang) {
-            DictLang.ZH -> key
+            DictLang.ZH -> DictZhOverride[key] ?: key
             DictLang.EN -> DictEn[key] ?: key
             DictLang.JA -> DictJa[key] ?: key
             DictLang.KO -> DictKo[key] ?: key

@@ -127,6 +127,7 @@ internal val DictEn: Map<String, String> = mapOf(
         "\"{0}\" will be permanently deleted, including all captions and chat.",
     "段" to "captions",
     "段 · " to "captions · ",
+    "{0}段 · " to "{0} captions · ",
     "{0}段" to "{0} captions",
     "段" to "captions",
 

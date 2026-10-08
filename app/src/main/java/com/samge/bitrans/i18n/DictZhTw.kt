@@ -118,6 +118,7 @@ internal val DictZhTw: Map<String, String> = mapOf(
         "「{0}」將被永久刪除，含全部字幕與摘要對話。",
     "段" to "段",
     "段 · " to "段 · ",
+    "{0}段 · " to "{0}段 · ",
     "{0}段" to "{0}段",
     "段" to "段",
 

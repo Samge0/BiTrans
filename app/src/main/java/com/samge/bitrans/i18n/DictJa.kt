@@ -128,6 +128,7 @@ internal val DictJa: Map<String, String> = mapOf(
         "「{0}」は字幕と要約会話も含め完全に削除されます。",
     "段" to "件",
     "段 · " to "件 · ",
+    "{0}段 · " to "{0}件 · ",
     "{0}段" to "{0}件",
     "段" to "件",
 
