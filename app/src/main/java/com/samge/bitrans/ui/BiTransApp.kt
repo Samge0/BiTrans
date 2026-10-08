@@ -85,6 +85,7 @@ fun AppleDialog(
     onConfirm: () -> Unit,
     dismissText: String? = "取消",
     extraContent: @Composable (ColumnScope.() -> Unit)? = null,
+    leadingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -116,9 +117,10 @@ fun AppleDialog(
                 Spacer(Modifier.height(16.dp))
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (leadingContent != null) leadingContent(this)
+                    Spacer(Modifier.weight(1f))
                     if (dismissText != null) {
                         TextButton(onClick = onDismiss) {
                             Text(dismissText, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
@@ -1132,12 +1134,8 @@ private fun SessionDetailPage(
                     shape = RoundedCornerShape(11.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            },
+                leadingContent = {
                     if (vm.llmConfigured() && !aiNaming) {
                         TextButton(onClick = {
                             aiNaming = true
@@ -1148,14 +1146,11 @@ private fun SessionDetailPage(
                         }) { Text("AI 起名", fontSize = 13.sp) }
                     }
                     if (aiNaming) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(6.dp))
-                            Text("生成中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text("生成中…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                }
-            },
+                },
             )
         }
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
