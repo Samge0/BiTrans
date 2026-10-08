@@ -159,8 +159,9 @@ fun BiTransApp(vm: MainViewModel) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         // sub-pages draw their own status-bar inset; the scaffold must not also
-        // reserve one (double inset = the blank strip above their titles)
-        contentWindowInsets = if (inHistorySubPage) WindowInsets(0, 0, 0, 0)
+        // reserve one (double inset = the blank strip above their titles).
+        // IME inset is passed through so the chat input can sit above the keyboard.
+        contentWindowInsets = if (inHistorySubPage) WindowInsets.ime
         else ScaffoldDefaults.contentWindowInsets,
         topBar = {
             if (!inHistorySubPage) CenterAlignedTopAppBar(
@@ -1125,11 +1126,36 @@ private fun SummaryChatPage(
         } else persisted
     }
 
-    LaunchedEffect(msgs.size, msgs.lastOrNull()?.content?.length) {
-        if (msgs.isNotEmpty()) listState.scrollToItem(msgs.lastIndex)
+    // auto-follow the growing bubble; pause while the user has scrolled away
+    // from the bottom (reading history) and resume when they return.
+    var lastCount by remember { mutableStateOf(0) }
+    var followTail by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex to listState.layoutInfo.totalItemsCount }
+            .collect { (idx, total) ->
+                if (total > 0) followTail = idx >= total - 1
+            }
+    }
+    // a brand-new message always snaps to tail (even if the user had scrolled away)
+    LaunchedEffect(msgs.size) {
+        if (msgs.size > lastCount) {
+            followTail = true
+            lastCount = msgs.size
+        }
+    }
+    LaunchedEffect(msgs.size, shownChars, fullText.length, msgs.lastOrNull()?.content?.length) {
+        if (msgs.isNotEmpty() && followTail) {
+            listState.scrollToItem(msgs.lastIndex)
+        }
     }
 
-    Column(Modifier.fillMaxSize().padding(top = sbInset)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(top = sbInset)
+            .imePadding()          // input row stays above the soft keyboard
+            .navigationBarsPadding(),
+    ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
