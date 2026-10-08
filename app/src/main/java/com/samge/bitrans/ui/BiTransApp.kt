@@ -78,8 +78,9 @@ fun BiTransApp(vm: MainViewModel) {
     val settings by vm.settings.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
-    // sub-page inside History (detail/chat) - hides the outer title
-    var historySubPage by remember { mutableStateOf<String?>(null) }
+    // independent history pages: LIST / DETAIL(session) / CHAT(session).
+    // Only ONE is composed at a time — no hidden placeholder views.
+    var historyPage by remember { mutableStateOf<HistoryPage>(HistoryPage.List) }
     // live-edited settings snapshot kept current by SettingsPane (used on back = autosave)
     var pendingEdits by remember { mutableStateOf<AppSettings?>(null) }
 
@@ -140,17 +141,25 @@ fun BiTransApp(vm: MainViewModel) {
         else permLauncher.launch(need.toTypedArray())
     }
 
-    androidx.activity.compose.BackHandler(enabled = showSettings || (showHistory && historySubPage == null)) {
-        if (showSettings) exitSettingsSavingEdits()
-        else if (showHistory) showHistory = false
+    androidx.activity.compose.BackHandler(enabled = showSettings) {
+        exitSettingsSavingEdits()
+    }
+    androidx.activity.compose.BackHandler(enabled = showHistory && historyPage !is HistoryPage.List) {
+        historyPage = when (val hp = historyPage) {
+            is HistoryPage.Chat -> HistoryPage.Detail(hp.session)
+            is HistoryPage.Detail -> HistoryPage.List
+            else -> HistoryPage.List
+        }
+    }
+    androidx.activity.compose.BackHandler(enabled = showHistory && historyPage is HistoryPage.List) {
+        showHistory = false
     }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            if (showHistory && historySubPage != null) {
-                // sub-page owns its full header (title + back) — no outer bar
-            } else CenterAlignedTopAppBar(
+            val inHistorySubPage = showHistory && historyPage !is HistoryPage.List
+            if (!inHistorySubPage) CenterAlignedTopAppBar(
                 title = {
                     Text(
                         when {
@@ -163,11 +172,12 @@ fun BiTransApp(vm: MainViewModel) {
                     )
                 },
                 navigationIcon = {
-                    if (showSettings || showHistory) {
-                        IconButton(onClick = {
-                            if (showSettings) exitSettingsSavingEdits()
-                            if (showHistory) { showHistory = false; historySubPage = null }
-                        }) {
+                    if (showSettings) {
+                        IconButton(onClick = { exitSettingsSavingEdits() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    } else if (showHistory) {
+                        IconButton(onClick = { showHistory = false; historyPage = HistoryPage.List }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     }
@@ -212,7 +222,13 @@ fun BiTransApp(vm: MainViewModel) {
                         // back/gesture exit hands us the LIVE edited state (not the persisted snapshot)
                         pendingEdits = edited
                     }
-                    showHistory -> HistoryPane(vm) { sub -> historySubPage = sub }
+                    showHistory -> when (val hp = historyPage) {
+                        is HistoryPage.List -> HistoryListPage(vm) { historyPage = HistoryPage.Detail(it) }
+                        is HistoryPage.Detail -> SessionDetailPage(vm, hp.session) {
+                            historyPage = if (it == null) HistoryPage.List else HistoryPage.Chat(hp.session)
+                        }
+                        is HistoryPage.Chat -> SummaryChatPage(vm, hp.session) { historyPage = HistoryPage.Detail(hp.session) }
+                    }
                     else -> MainPane(
                         vm, captions, settings, status, level, listening,
                         captureMode = captureMode,
@@ -828,7 +844,40 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 14.sp,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
+        // version + releases link (opens browser)
+        val ctxFooter = LocalContext.current
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val versionName = runCatching {
+                ctxFooter.packageManager.getPackageInfo(ctxFooter.packageName, 0).versionName
+            }.getOrNull() ?: "?"
+            Text(
+                "v$versionName · ",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "GitHub Releases",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                modifier = Modifier.clickable {
+                    runCatching {
+                        ctxFooter.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse("https://github.com/Samge0/BiTrans/releases"),
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                    }
+                },
+            )
+        }
+        Spacer(Modifier.height(28.dp))
     }
 }
 
@@ -858,166 +907,26 @@ private fun SettingSlider(label: String, value: Float, range: ClosedFloatingPoin
     )
 }
 
-// ---------------- History ----------------
+// ---------------- History: three INDEPENDENT pages ----------------
 
+/** History navigation: only ONE page composed at a time. */
+sealed interface HistoryPage {
+    data object List : HistoryPage
+    data class Detail(val session: com.samge.bitrans.data.Session) : HistoryPage
+    data class Chat(val session: com.samge.bitrans.data.Session) : HistoryPage
+}
+
+/** Page 1: session list. Own header lives in the outer top bar. */
 @Composable
-private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
-    val ctx = LocalContext.current
+private fun HistoryListPage(vm: MainViewModel, onOpen: (com.samge.bitrans.data.Session) -> Unit) {
     val sessions by vm.sessions.collectAsState()
-    var openSession by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
-    var showChat by remember { mutableStateOf<com.samge.bitrans.data.Session?>(null) }
-    // no outer top bar on sub-pages: compensate with status-bar inset.
-    // v1.4.4: list page needs only status-bar + small breathing room — the old
-    // +48dp (phantom title height) stacked with the inset into a big blank area.
-    val statusBarInset = WindowInsets.statusBars
-        .asPaddingValues()
-        .calculateTopPadding()
-    val topPad = statusBarInset + 8.dp
-
-    // sub-page back handling: pops detail->list, chat->detail (inner wins over outer)
-    androidx.activity.compose.BackHandler(enabled = openSession != null) {
-        if (showChat != null) showChat = null else openSession = null
-    }
-
-    LaunchedEffect(openSession?.id, showChat?.id) {
-        onSubPage(when {
-            showChat != null -> "chat"
-            openSession != null -> "detail"
-            else -> null
-        })
-    }
-
-    if (openSession != null) {
-        val session = openSession!!
-        if (showChat != null) {
-            ChatPane(vm, session) { showChat = null }
-            return
-        }
-        val items by vm.itemsOf(session.id).collectAsState(initial = emptyList())
-        var renameDialog by remember { mutableStateOf(false) }
-        var renameText by remember(session.id) { mutableStateOf(session.title) }
-        Column(Modifier.fillMaxSize().padding(top = statusBarInset)) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { openSession = null }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(session.title, fontSize = 15.sp, fontWeight = FontWeight(600))
-                    Text("${items.size} 段", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { renameDialog = true }) {
-                    Icon(Icons.Default.Settings, contentDescription = "重命名")
-                }
-                // one-tap AI summary (chat page)
-                PillButton(label = "一键总结", compact = true) {
-                    if (vm.llmConfigured()) {
-                        showChat = session
-                        vm.bindChat(session.id)
-                        vm.maybeAutoSummarize(session.id)
-                    } else {
-                        android.widget.Toast.makeText(ctx, "请先到设置页配置 LLM 引擎", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            if (renameDialog) {
-                AlertDialog(
-                    onDismissRequest = { renameDialog = false },
-                    title = { Text("重命名", fontSize = 15.sp) },
-                    text = {
-                        OutlinedTextField(
-                            value = renameText,
-                            onValueChange = { renameText = it },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.bodySmall,
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            vm.renameSession(session.id, renameText)
-                            renameDialog = false
-                        }) { Text("确定") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { renameDialog = false }) { Text("取消") }
-                    },
-                )
-            }
-            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-                items(items, key = { it.id }) { item ->
-                    Surface(
-                        shape = CardShape,
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    ) {
-                        Column(Modifier.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                LangChip(item.langTag)
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                                        .format(java.util.Date(item.ts)),
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                IconButton(
-                                    onClick = { copyCaption(ctx, item.source, item.target) },
-                                    modifier = Modifier.size(26.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Default.ContentCopy,
-                                        contentDescription = "复制",
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                            Text(item.source, fontSize = 14.sp, lineHeight = 20.sp)
-                            if (item.target.isNotBlank()) {
-                                Text(
-                                    item.target,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    lineHeight = 19.sp,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return
-    }
-
-    // list page: light header row (title + count) below the status-bar inset
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(top = topPad)) {
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "历史记录",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight(600),
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    "${sessions.size} 次记录",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         items(sessions, key = { it.id }) { s ->
             Surface(
                 shape = CardShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { openSession = s },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpen(s) },
             ) {
                 Row(
                     Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1051,67 +960,162 @@ private fun HistoryPane(vm: MainViewModel, onSubPage: (String?) -> Unit) {
     }
 }
 
-// ---------------- Summary Chat ----------------
-
+/** Page 2: session detail. Fully independent page with its OWN header. */
 @Composable
-private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session, onExit: () -> Unit) {
+private fun SessionDetailPage(
+    vm: MainViewModel,
+    session: com.samge.bitrans.data.Session,
+    onNavigate: (com.samge.bitrans.data.Session?) -> Unit, // null=back, non-null=open chat
+) {
+    val ctx = LocalContext.current
+    val items by vm.itemsOf(session.id).collectAsState(initial = emptyList())
+    var renameDialog by remember { mutableStateOf(false) }
+    var renameText by remember(session.id) { mutableStateOf(session.title) }
+    val sbInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    Column(Modifier.fillMaxSize().padding(top = sbInset)) {
+        // OWN header row: back + title + meta + summary button
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = { onNavigate(null) }) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            }
+            Column(Modifier.weight(1f)) {
+                Text(session.title, fontSize = 15.sp, fontWeight = FontWeight(600), maxLines = 1)
+                Text("${items.size} 段", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = { renameDialog = true }) {
+                Icon(Icons.Default.Settings, contentDescription = "重命名")
+            }
+            PillButton(label = "总结", compact = true) {
+                if (vm.llmConfigured()) {
+                    vm.bindChat(session.id)
+                    vm.maybeAutoSummarize(session.id)
+                    onNavigate(session)
+                } else {
+                    android.widget.Toast.makeText(ctx, "请先到设置页配置 LLM 引擎", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        if (renameDialog) {
+            AlertDialog(
+                onDismissRequest = { renameDialog = false },
+                title = { Text("重命名", fontSize = 15.sp) },
+                text = {
+                    OutlinedTextField(
+                        value = renameText,
+                        onValueChange = { renameText = it },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.renameSession(session.id, renameText)
+                        renameDialog = false
+                    }) { Text("确定") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { renameDialog = false }) { Text("取消") }
+                },
+            )
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+            items(items, key = { it.id }) { item ->
+                Surface(
+                    shape = CardShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                ) {
+                    Column(Modifier.padding(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            LangChip(item.langTag)
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                                    .format(java.util.Date(item.ts)),
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(
+                                onClick = { copyCaption(ctx, item.source, item.target) },
+                                modifier = Modifier.size(26.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.ContentCopy,
+                                    contentDescription = "复制",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Text(item.source, fontSize = 14.sp, lineHeight = 20.sp)
+                        if (item.target.isNotBlank()) {
+                            Text(
+                                item.target,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                lineHeight = 19.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Page 3: AI summary chat. Independent page, typewriter built in. */
+@Composable
+private fun SummaryChatPage(
+    vm: MainViewModel,
+    session: com.samge.bitrans.data.Session,
+    onBack: () -> Unit,
+) {
     val ctx = LocalContext.current
     val streaming by vm.chatStreaming.collectAsState()
     val liveDelta by vm.chatLiveDelta.collectAsState()
+    val persisted by vm.chatMessages.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val sbInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    // ---- typewriter reveal: network deltas land in fullText; UI reveals it at
-    // a fixed pace. Deterministic regardless of transport batching. ----
+    // typewriter: buffer grows from live deltas; reveal at steady pace and ONLY
+    // stops when done — the final persisted row must not preempt the reveal.
     var fullText by remember { mutableStateOf("") }
     var shownChars by remember { mutableStateOf(0) }
-    // error text survives streaming end: shown as a finished bubble
-    var errorText by remember { mutableStateOf<String?>(null) }
-    val persisted by vm.chatMessages.collectAsState()
-
-    val statusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    var lastStreamSeq by remember { mutableStateOf(0) }   // bump per new stream
 
     LaunchedEffect(streaming) {
         if (streaming) {
             fullText = ""
             shownChars = 0
-            errorText = null
+            lastStreamSeq++
         }
     }
-    // ingest live-delta channel as it grows
     LaunchedEffect(liveDelta?.content) {
         val c = liveDelta?.content ?: return@LaunchedEffect
-        if (c.startsWith("总结失败")) errorText = c else if (c.length > fullText.length) fullText = c
+        if (c.length > fullText.length) fullText = c
     }
-    // when streaming ends with an error, keep it as a finished bubble
-    LaunchedEffect(streaming) {
-        if (!streaming && fullText.isBlank() && errorText != null) {
-            fullText = errorText ?: ""
-            shownChars = fullText.length
-        }
-    }
-    // steady reveal loop
-    LaunchedEffect(streaming, fullText) {
-        if (!streaming) {
-            if (fullText.isNotBlank() && errorText != null) shownChars = fullText.length
-            return@LaunchedEffect
-        }
-        while (streaming && shownChars < fullText.length) {
+    LaunchedEffect(lastStreamSeq, fullText) {
+        // reveal loop keyed to the CURRENT stream: keeps running until the buffer
+        // is fully revealed, even if streaming already flipped false.
+        while (shownChars < fullText.length) {
             shownChars = (shownChars + 3).coerceAtMost(fullText.length)
             kotlinx.coroutines.delay(16)
         }
     }
 
-    // display list = persisted history + typewriter line (live entry is
-    // NOT in persisted — Room re-emissions can't wipe it mid-stream)
-    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, streaming, shownChars, fullText) {
-        val showLive = streaming || (errorText != null && fullText == errorText)
-        if (showLive && fullText.isNotBlank()) {
+    val revealDone = shownChars >= fullText.length
+    val msgs: List<com.samge.bitrans.data.ChatMessage> = remember(persisted, fullText, shownChars) {
+        if (fullText.isNotBlank() && !(revealDone && !streaming && persisted.any { it.role == "assistant" && it.content == fullText })) {
             persisted + listOf(
                 com.samge.bitrans.data.ChatMessage(
-                    id = Long.MAX_VALUE, sessionId = session.id,
-                    ts = 0, role = "assistant",
-                    content = fullText.take(shownChars),
+                    id = Long.MAX_VALUE, sessionId = session.id, ts = 0,
+                    role = "assistant", content = fullText.take(shownChars),
                 )
             )
         } else persisted
@@ -1121,13 +1125,12 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
         if (msgs.isNotEmpty()) listState.scrollToItem(msgs.lastIndex)
     }
 
-    Column(Modifier.fillMaxSize().padding(top = statusBarInset)) {
-        // header
+    Column(Modifier.fillMaxSize().padding(top = sbInset)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onExit) {
+            IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1138,7 +1141,6 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
                 Icon(Icons.Default.Delete, contentDescription = "清空会话", tint = MaterialTheme.colorScheme.error)
             }
         }
-        // messages
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
@@ -1169,7 +1171,7 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
                             } else {
                                 MarkdownBody(body, contentColor)
                             }
-                            if (streaming && m.role == "assistant" && m == msgs.lastOrNull()) {
+                            if (m.id == Long.MAX_VALUE && shownChars < fullText.length) {
                                 Text("▍", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
@@ -1177,7 +1179,6 @@ private fun ChatPane(vm: MainViewModel, session: com.samge.bitrans.data.Session,
                 }
             }
         }
-        // input
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,

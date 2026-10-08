@@ -577,6 +577,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // _chatMessages — Room re-emissions would wipe a provisional
                 // entry there mid-stream); the UI runs its own typewriter.
                 val acc = StringBuilder()
+                // fresh stream: reset live entry (previous stream's tail has been
+                // revealed & persisted by now)
                 _chatLiveDelta.value = com.samge.bitrans.data.ChatMessage(
                     id = -777L, sessionId = sessionId, ts = System.currentTimeMillis(),
                     role = "assistant", content = "",
@@ -585,8 +587,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     acc.append(delta)
                     _chatLiveDelta.value = _chatLiveDelta.value?.copy(content = acc.toString())
                 }.onSuccess { full ->
-                    // clear live entry; Room Flow delivers the final persisted row
-                    _chatLiveDelta.value = null
+                    // KEEP the live entry until the next stream starts: the UI's
+                    // typewriter is still revealing it, and clearing here would let
+                    // the final persisted row preempt the reveal (one-shot dump).
                     dao.insertChat(
                         com.samge.bitrans.data.ChatMessage(
                             sessionId = sessionId, ts = System.currentTimeMillis(),
@@ -594,11 +597,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     )
                 }.onFailure { e ->
-                    // leave the error text in the live entry; UI hands it to its
-                    // typewriter buffer before we clear, so the message stays visible
                     _chatLiveDelta.value = _chatLiveDelta.value?.copy(content = "总结失败：${e.message}")
                 }
-                _chatLiveDelta.value = null
             } finally {
                 _chatStreaming.value = false
             }
