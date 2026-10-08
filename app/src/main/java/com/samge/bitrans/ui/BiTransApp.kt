@@ -755,7 +755,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
     fun buildSettings() = AppSettings(
         engine, target, source, ltEndpoint, llmBase, llmModel, llmKey, noThink, tts,
         overlayOn, overlayW.toInt(), overlayFont.toInt(), overlayAlpha.toInt(),
-        overlayLines.toInt(), autoScroll, translateOn, appLang,
+        overlayLines.toInt(), autoScroll, translateOn, appLang, cur.captureMode,
     )
 
     // keep the parent's "pending edits" current so back/gesture-exit saves the
@@ -794,7 +794,7 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
             Spacer(Modifier.height(8.dp))
             Text(t("目标语言（翻译成）"), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(4.dp))
-            FlowChips(TargetLang.entries.map { it.code to it.display }, target) { target = it }
+            FlowChips(TargetLang.entries.map { it.code to t(it.display) }, target) { target = it }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -897,6 +897,9 @@ private fun SettingsPane(vm: MainViewModel, cur: AppSettings, onEdits: (AppSetti
                                 onClick = {
                                     appLang = l.code
                                     langMenu = false
+                                    // instant apply: persist + live-switch WITHOUT waiting
+                                    // for the top-right Save button (subtitle says so)
+                                    vm.updateSettings(buildSettings())
                                 },
                             )
                         }

@@ -53,6 +53,7 @@ data class AppSettings(
     val autoScroll: Boolean,
     val translateOn: Boolean,
     val appLang: String = "system",
+    val captureMode: String = "mic",
 ) {
     /** JSON for export — deliberately excludes apiKey (security) */
     fun toJson(): String = org.json.JSONObject().apply {
@@ -74,6 +75,7 @@ data class AppSettings(
         put("autoScroll", autoScroll)
         put("translateOn", translateOn)
         put("appLang", appLang)
+        put("captureMode", captureMode)
     }.toString(2)
 
     companion object {
@@ -98,6 +100,7 @@ data class AppSettings(
                     autoScroll = o.optBoolean("autoScroll", true),
                     translateOn = o.optBoolean("translateOn", true),
                     appLang = o.optString("appLang", "system"),
+                    captureMode = o.optString("captureMode", "mic"),
                 )
             } catch (_: Exception) {
                 null
@@ -734,6 +737,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         TranslateConfig.setAutoScroll(ctx(), s.autoScroll)
         TranslateConfig.setTranslationEnabled(ctx(), s.translateOn)
         TranslateConfig.setAppLang(ctx(), s.appLang)
+        TranslateConfig.setCaptureMode(ctx(), s.captureMode)
+        // keep the VM capture-mode flow in sync (e.g. after import)
+        _captureMode.value = s.captureMode
         // live language switch: update the compose-observable snapshot so every
         // t() call site recomposes immediately (no app restart needed)
         com.samge.bitrans.i18n.I18nState.update(ctx(), s.appLang)
@@ -804,6 +810,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         autoScroll = TranslateConfig.autoScroll(ctx()),
         translateOn = TranslateConfig.translationEnabled(ctx()),
         appLang = TranslateConfig.appLang(ctx()),
+        captureMode = TranslateConfig.captureMode(ctx()),
     )
 
     override fun onCleared() {
