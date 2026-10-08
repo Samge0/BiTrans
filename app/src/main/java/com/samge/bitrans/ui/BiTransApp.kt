@@ -1137,22 +1137,41 @@ private fun SummaryChatPage(
     // a NEW message (sent/received) always re-engages following
     LaunchedEffect(msgs.size) { if (msgs.isNotEmpty()) followBottom.value = true }
 
-    // auto-scroll: reactive to LAYOUT changes (text growth included), aligned
-    // BEFORE layout via requestScrollToItem (no double-layout -> no jitter)
+    // auto-scroll: reactive to LAYOUT changes (text growth included).
+    // KEY INSIGHT: requestScrollToItem(last) pins the last item's TOP to the
+    // viewport top — once a streaming bubble is TALLER than the viewport, its
+    // top is pinned at the header and further growth is NOT followed.
+    // Fix: while following, keep the last item's BOTTOM pinned to the viewport
+    // bottom via a scroll position computed from the layout info.
     LaunchedEffect(listState, followBottom.value) {
         androidx.compose.runtime.snapshotFlow {
-            // observe count + follow + last-item size (growing bubble) so any
-            // layout growth re-fires while following
+            // observe count + follow + last-item geometry so any growth re-fires
+            val lastInfo = listState.layoutInfo.visibleItemsInfo.lastOrNull()
             Triple(
                 listState.layoutInfo.totalItemsCount,
                 followBottom.value,
-                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.size ?: 0,
+                (lastInfo?.index ?: -1) to (lastInfo?.size ?: 0),
             )
         }.collect { state ->
-            val (total, following, _) = state
+            val (total, following, lastGeom) = state
             if (!following) return@collect
+            val (lastIdx, lastSize) = lastGeom
             val last = total - 1
-            if (last >= 0) {
+            if (last < 0) return@collect
+
+            if (lastIdx == last) {
+                // last item is (partially) visible: align its BOTTOM with the
+                // viewport bottom -> new text stays in view as the bubble grows
+                val viewport = listState.layoutInfo.viewportEndOffset
+                val itemBottomOnScreen = listState.layoutInfo.visibleItemsInfo
+                    .last().offset + lastSize
+                val overshoot = itemBottomOnScreen - viewport
+                if (overshoot > 0) {
+                    listState.requestScrollToItem(last, overshoot)
+                }
+            } else {
+                // last item fully off-screen: jump to it (top-align first;
+                // next layout pass will bottom-pin via the branch above)
                 listState.requestScrollToItem(last)
             }
         }
