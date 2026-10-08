@@ -155,10 +155,14 @@ fun BiTransApp(vm: MainViewModel) {
         showHistory = false
     }
 
+    val inHistorySubPage = showHistory && historyPage !is HistoryPage.List
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        // sub-pages draw their own status-bar inset; the scaffold must not also
+        // reserve one (double inset = the blank strip above their titles)
+        contentWindowInsets = if (inHistorySubPage) WindowInsets(0, 0, 0, 0)
+        else ScaffoldDefaults.contentWindowInsets,
         topBar = {
-            val inHistorySubPage = showHistory && historyPage !is HistoryPage.List
             if (!inHistorySubPage) CenterAlignedTopAppBar(
                 title = {
                     Text(
