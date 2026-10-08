@@ -128,6 +128,8 @@ internal val DictJa: Map<String, String> = mapOf(
         "「{0}」は字幕と要約会話も含め完全に削除されます。",
     "段" to "件",
     "段 · " to "件 · ",
+    "{0}段" to "{0}件",
+    "段" to "件",
 
     // ── rename dialog ───────────────────────────────────────────────
     "AI 起名" to "AI 命名",
@@ -164,7 +166,7 @@ internal val DictJa: Map<String, String> = mapOf(
         "マイクがフォアグラウンドアプリに占有されています（ボイスルームのマイクが有効）。正しい使い方：端末のスピーカー + 相手の話を聞くときは自分のマイクをオフに。BiTrans は自動で翻訳を再開します",
 
     // ── TargetLang display names (dropdown) ─────────────────────────
-    "English" to "English",
+    "English" to "英語",
     "日本語" to "日本語",
-    "한국어" to "한국어",
+    "한국어" to "韓国語",
 )

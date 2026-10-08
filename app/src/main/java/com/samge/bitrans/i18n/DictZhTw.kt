@@ -118,6 +118,8 @@ internal val DictZhTw: Map<String, String> = mapOf(
         "「{0}」將被永久刪除，含全部字幕與摘要對話。",
     "段" to "段",
     "段 · " to "段 · ",
+    "{0}段" to "{0}段",
+    "段" to "段",
 
     "AI 起名" to "AI 命名",
     "请先配置 LLM 引擎" to "請先配置 LLM 引擎",
@@ -148,7 +150,7 @@ internal val DictZhTw: Map<String, String> = mapOf(
     "麦克风被前台应用占用（你开了语音房麦克风）。语言房正确姿势：手机外放 + 听对方时关自己的麦，BiTrans 会自动恢复翻译对方的声音" to
         "麥克風被前景應用佔用（你開了語音房麥克風）。語言房正確姿勢：手機外放 + 聽對方時關自己的麥，BiTrans 會自動恢復翻譯對方的聲音",
 
-    "English" to "English",
-    "日本語" to "日本語",
-    "한국어" to "한국語",
+    "English" to "英文",
+    "日本語" to "日文",
+    "한국어" to "韓文",
 )

@@ -127,6 +127,8 @@ internal val DictKo: Map<String, String> = mapOf(
         "\"{0}\"이(가) 모든 자막과 요약 대화를 포함해 영구 삭제됩니다.",
     "段" to "개",
     "段 · " to "개 · ",
+    "{0}段" to "{0}개",
+    "段" to "개",
 
     // ── rename dialog ───────────────────────────────────────────────
     "AI 起名" to "AI 이름",
@@ -163,7 +165,7 @@ internal val DictKo: Map<String, String> = mapOf(
         "마이크가 포그라운드 앱에 점유되고 있습니다(음성방 마이크 켜짐). 올바른 사용법: 휴대폰 스피커 + 상대 말을 들을 때 내 마이크 끄기. BiTrans가 자동으로 번역을 재개합니다",
 
     // ── TargetLang display names (dropdown) ─────────────────────────
-    "English" to "English",
+    "English" to "영어",
     "日本語" to "일본어",
     "한국어" to "한국어",
 )
